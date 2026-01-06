@@ -635,6 +635,7 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [error, setError] = useState('');
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [watchId, setWatchId] = useState<number | null>(null);
 
   useEffect(() => {
     loadLocations();
@@ -661,6 +662,15 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
     };
   }, [tripId]);
 
+  // Cleanup geolocation watcher on unmount
+  useEffect(() => {
+    return () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
+  }, [watchId]);
+
   async function loadLocations() {
     const { data } = await supabase
       .from('member_locations')
@@ -682,7 +692,7 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
     setSharing(true);
     setError('');
 
-    navigator.geolocation.watchPosition(
+    const id = navigator.geolocation.watchPosition(
       async (position) => {
         const { latitude, longitude } = position.coords;
         setMyLocation({ lat: latitude, lng: longitude });
@@ -706,9 +716,16 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
         timeout: 10000,
       }
     );
+    setWatchId(id);
   }
 
   async function stopSharing() {
+    // Clear the geolocation watcher
+    if (watchId !== null) {
+      navigator.geolocation.clearWatch(watchId);
+      setWatchId(null);
+    }
+
     setSharing(false);
     setMyLocation(null);
 

@@ -276,6 +276,9 @@ function CreateTripModal({
 
   // Check for payment success on mount
   useEffect(() => {
+    // Wait for user to be loaded
+    if (!user) return;
+
     const urlParams = new URLSearchParams(window.location.search);
     const paymentStatus = urlParams.get('payment');
     const savedTripData = sessionStorage.getItem('pendingTripData');
@@ -285,29 +288,46 @@ function CreateTripModal({
     const isPaymentSuccess = paymentStatus === 'success' || (pendingPayment === 'true' && savedTripData);
 
     if (isPaymentSuccess && savedTripData) {
+      // Clear sessionStorage immediately to prevent re-triggering
       const tripData = JSON.parse(savedTripData);
+      sessionStorage.removeItem('pendingTripData');
+      sessionStorage.removeItem('pendingPayment');
+      // Remove query params
+      window.history.replaceState({}, '', window.location.pathname);
+
       setPendingTripData(tripData);
       setName(tripData.name);
       setDescription(tripData.description);
       setDepartureTime(tripData.departureTime);
       setStep('creating');
-      sessionStorage.removeItem('pendingTripData');
-      sessionStorage.removeItem('pendingPayment');
-      // Remove query params
-      window.history.replaceState({}, '', window.location.pathname);
       // Auto-create trip after payment
       createTripAfterPayment(tripData);
+    } else if (paymentStatus === 'cancelled') {
+      // User cancelled payment
+      window.history.replaceState({}, '', window.location.pathname);
+      setError('Payment was cancelled. Please try again.');
+      setStep('payment');
     }
-  }, []);
+  }, [user]);
 
   async function createTripAfterPayment(tripData: { name: string; description: string; departureTime: string }) {
-    if (!user) return;
+    if (!user) {
+      setError('User not logged in. Please refresh and try again.');
+      setStep('details');
+      return;
+    }
 
     setLoading(true);
-    const departureDate = new Date(tripData.departureTime);
-    const lobbyCode = generateLobbyCode();
+    setError('');
 
     try {
+      const departureDate = new Date(tripData.departureTime);
+      if (isNaN(departureDate.getTime())) {
+        throw new Error('Invalid departure date');
+      }
+
+      const lobbyCode = generateLobbyCode();
+
       const { data: trip, error: tripError } = await supabase
         .from('trips')
         .insert({
@@ -322,25 +342,33 @@ function CreateTripModal({
         .single();
 
       if (tripError) {
-        setError(tripError.message);
+        console.error('[createTripAfterPayment] Trip error:', tripError);
+        setError('Failed to create trip: ' + tripError.message);
         setStep('details');
         setLoading(false);
         return;
       }
 
-      await supabase.from('trip_members').insert({
+      const { error: memberError } = await supabase.from('trip_members').insert({
         trip_id: trip.id,
         user_id: user.id,
         role: 'admin',
       });
 
+      if (memberError) {
+        console.error('[createTripAfterPayment] Member error:', memberError);
+        // Trip was created but member wasn't added - still show success
+      }
+
       setCreatedTrip(trip as Trip);
       setStep('success');
     } catch (err) {
+      console.error('[createTripAfterPayment] Unexpected error:', err);
       setError('Unexpected error: ' + String(err));
       setStep('details');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   function handleProceedToPayment(e: React.FormEvent) {
