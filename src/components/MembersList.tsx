@@ -31,14 +31,14 @@ export default function MembersList({
       {/* Location toggle */}
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold">
-          {members.length} Deelnemers
+          {members.length} Participants
         </h2>
         <button
           onClick={() => setShowLocationMap(!showLocationMap)}
           className="btn-secondary text-sm flex items-center gap-2"
         >
           <MapPin className="w-4 h-4" />
-          {showLocationMap ? 'Lijst weergave' : 'Kaart weergave'}
+          {showLocationMap ? 'List view' : 'Map view'}
         </button>
       </div>
 
@@ -72,7 +72,7 @@ export default function MembersList({
             <div>
               <h3 className="text-sm font-medium text-white/50 mb-3 flex items-center gap-2">
                 <Users className="w-4 h-4" />
-                Leden ({regularMembers.length})
+                Members ({regularMembers.length})
               </h3>
               <div className="space-y-2">
                 {regularMembers.map((member) => (
@@ -105,7 +105,7 @@ function MemberCard({
   const [showMenu, setShowMenu] = useState(false);
 
   async function handleRemove() {
-    if (!confirm(`Weet je zeker dat je ${member.user?.name} wilt verwijderen?`)) return;
+    if (!confirm(`Are you sure you want to remove ${member.user?.name}?`)) return;
     await supabase.from('trip_members').delete().eq('id', member.id);
     window.location.reload();
   }
@@ -140,8 +140,8 @@ function MemberCard({
 
       {/* Joined date */}
       <div className="text-sm text-white/40 hidden sm:block">
-        Lid sinds{' '}
-        {new Date(member.joined_at).toLocaleDateString('nl-NL', {
+        Member since{' '}
+        {new Date(member.joined_at).toLocaleDateString('en-US', {
           day: 'numeric',
           month: 'short',
         })}
@@ -169,14 +169,14 @@ function MemberCard({
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-white/10 rounded-lg transition-colors"
                 >
                   <Shield className="w-4 h-4" />
-                  Maak Admin
+                  Make Admin
                 </button>
                 <button
                   onClick={handleRemove}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"
                 >
                   <UserMinus className="w-4 h-4" />
-                  Verwijderen
+                  Remove
                 </button>
               </div>
             </>
@@ -195,9 +195,9 @@ function LocationMap({ members }: { members: TripMember[] }) {
       <div className="aspect-video bg-white/5 rounded-xl flex flex-col items-center justify-center mb-4">
         <MapPin className="w-12 h-12 text-white/20 mb-2" />
         <p className="text-white/50 text-center">
-          Interactieve kaart
+          Interactive Map
           <br />
-          <span className="text-sm">(Locatie delen moet ingeschakeld zijn)</span>
+          <span className="text-sm">(Location sharing must be enabled)</span>
         </p>
       </div>
 
@@ -213,15 +213,15 @@ function LocationMap({ members }: { members: TripMember[] }) {
               </div>
               <span className="text-sm">{member.user?.name}</span>
             </div>
-            <span className="text-xs text-white/40">Locatie onbekend</span>
+            <span className="text-xs text-white/40">Location unknown</span>
           </div>
         ))}
       </div>
 
       <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
         <p className="text-sm text-blue-200">
-          Tip: Schakel locatie delen in om te zien waar iedereen is. Dit helpt
-          bij het verzamelen en zorgt dat niemand verdwaalt.
+          Tip: Enable location sharing to see where everyone is. This helps
+          with meeting up and ensures nobody gets lost.
         </p>
       </div>
     </div>

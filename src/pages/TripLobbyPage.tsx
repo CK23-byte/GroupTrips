@@ -144,7 +144,7 @@ export default function TripLobbyPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-4" />
-          <p className="text-white/50">Trip laden...</p>
+          <p className="text-white/50">Loading trip...</p>
         </div>
       </div>
     );
@@ -154,9 +154,9 @@ export default function TripLobbyPage() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <p className="text-white/50 mb-4">Trip niet gevonden</p>
+          <p className="text-white/50 mb-4">Trip not found</p>
           <Link to="/dashboard" className="btn-primary">
-            Terug naar Dashboard
+            Back to Dashboard
           </Link>
         </div>
       </div>
@@ -184,7 +184,7 @@ export default function TripLobbyPage() {
                 <div className="flex items-center gap-2 text-sm text-white/50">
                   <Calendar className="w-4 h-4" />
                   <span>
-                    {departure.toLocaleDateString('nl-NL', {
+                    {departure.toLocaleDateString('en-US', {
                       weekday: 'long',
                       day: 'numeric',
                       month: 'long',
@@ -232,7 +232,7 @@ export default function TripLobbyPage() {
               active={activeTab === 'overview'}
               onClick={() => setActiveTab('overview')}
               icon={<Plane className="w-4 h-4" />}
-              label="Overzicht"
+              label="Overview"
             />
             <TabButton
               active={activeTab === 'tickets'}
@@ -244,19 +244,19 @@ export default function TripLobbyPage() {
               active={activeTab === 'schedule'}
               onClick={() => setActiveTab('schedule')}
               icon={<Clock className="w-4 h-4" />}
-              label="Planning"
+              label="Schedule"
             />
             <TabButton
               active={activeTab === 'members'}
               onClick={() => setActiveTab('members')}
               icon={<Users className="w-4 h-4" />}
-              label={`Leden (${members.length})`}
+              label={`Members (${members.length})`}
             />
             <TabButton
               active={activeTab === 'messages'}
               onClick={() => setActiveTab('messages')}
               icon={<MessageSquare className="w-4 h-4" />}
-              label="Berichten"
+              label="Messages"
             />
             <TabButton
               active={activeTab === 'media'}
@@ -363,7 +363,7 @@ function CountdownBanner({ departureTime }: { departureTime: string }) {
       <div className="bg-green-500/20 border-b border-green-500/30">
         <div className="max-w-7xl mx-auto px-6 py-3 text-center">
           <p className="text-green-400 font-medium">
-            De reis is begonnen! Veel plezier!
+            The trip has started! Have fun!
           </p>
         </div>
       </div>
@@ -374,10 +374,10 @@ function CountdownBanner({ departureTime }: { departureTime: string }) {
     <div className="bg-gradient-to-r from-blue-500/20 to-fuchsia-500/20 border-b border-white/10">
       <div className="max-w-7xl mx-auto px-6 py-4">
         <div className="flex items-center justify-center gap-6">
-          <span className="text-white/60 text-sm">Vertrek over:</span>
+          <span className="text-white/60 text-sm">Departure in:</span>
           <div className="flex gap-3">
-            <TimeUnit value={timeLeft.days} label="dagen" />
-            <TimeUnit value={timeLeft.hours} label="uren" />
+            <TimeUnit value={timeLeft.days} label="days" />
+            <TimeUnit value={timeLeft.hours} label="hrs" />
             <TimeUnit value={timeLeft.minutes} label="min" />
             <TimeUnit value={timeLeft.seconds} label="sec" />
           </div>
@@ -422,7 +422,7 @@ function OverviewTab({
         <div className="card p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FileText className="w-5 h-5 text-blue-400" />
-            Jouw Ticket
+            Your Ticket
           </h2>
           {ticket ? (
             <div className="flex items-center justify-between">
@@ -430,19 +430,19 @@ function OverviewTab({
                 <p className="text-white/60 text-sm mb-1">Status</p>
                 <p className="font-medium">
                   {revealStatus === 'full'
-                    ? 'Volledig zichtbaar'
+                    ? 'Fully visible'
                     : revealStatus === 'qr_only'
-                    ? 'QR-code beschikbaar'
-                    : 'Nog verborgen'}
+                    ? 'QR code available'
+                    : 'Still hidden'}
                 </p>
               </div>
               <Link to="?tab=tickets" className="btn-primary text-sm">
-                Bekijk Ticket
+                View Ticket
               </Link>
             </div>
           ) : (
             <p className="text-white/50">
-              De admin heeft nog geen ticket voor je geüpload.
+              The admin hasn't uploaded your ticket yet.
             </p>
           )}
         </div>
@@ -452,7 +452,7 @@ function OverviewTab({
           <div className="card p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <Bell className="w-5 h-5 text-yellow-400" />
-              Belangrijke Berichten
+              Important Messages
             </h2>
             <div className="space-y-3">
               {pinnedMessages.map((msg) => (
@@ -462,7 +462,7 @@ function OverviewTab({
                 >
                   <p className="text-sm">{msg.content}</p>
                   <p className="text-xs text-white/40 mt-2">
-                    {new Date(msg.created_at).toLocaleString('nl-NL')}
+                    {new Date(msg.created_at).toLocaleString('en-US')}
                   </p>
                 </div>
               ))}
@@ -475,7 +475,7 @@ function OverviewTab({
           <div className="card p-6">
             <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
               <Clock className="w-5 h-5 text-fuchsia-400" />
-              Komende Activiteiten
+              Upcoming Activities
             </h2>
             <div className="space-y-3">
               {upcomingSchedule.map((item) => (
@@ -485,13 +485,13 @@ function OverviewTab({
                 >
                   <div className="w-12 text-center">
                     <p className="text-xs text-white/40">
-                      {new Date(item.start_time).toLocaleDateString('nl-NL', {
+                      {new Date(item.start_time).toLocaleDateString('en-US', {
                         day: 'numeric',
                         month: 'short',
                       })}
                     </p>
                     <p className="font-semibold">
-                      {new Date(item.start_time).toLocaleTimeString('nl-NL', {
+                      {new Date(item.start_time).toLocaleTimeString('en-US', {
                         hour: '2-digit',
                         minute: '2-digit',
                       })}
@@ -525,7 +525,7 @@ function OverviewTab({
             <div className="flex items-center gap-3">
               <Calendar className="w-5 h-5 text-white/40" />
               <span className="text-sm">
-                {new Date(trip.departure_time).toLocaleDateString('nl-NL', {
+                {new Date(trip.departure_time).toLocaleDateString('en-US', {
                   weekday: 'long',
                   day: 'numeric',
                   month: 'long',
@@ -536,8 +536,8 @@ function OverviewTab({
             <div className="flex items-center gap-3">
               <Clock className="w-5 h-5 text-white/40" />
               <span className="text-sm">
-                Vertrek:{' '}
-                {new Date(trip.departure_time).toLocaleTimeString('nl-NL', {
+                Departure:{' '}
+                {new Date(trip.departure_time).toLocaleTimeString('en-US', {
                   hour: '2-digit',
                   minute: '2-digit',
                 })}
@@ -545,14 +545,14 @@ function OverviewTab({
             </div>
             <div className="flex items-center gap-3">
               <Users className="w-5 h-5 text-white/40" />
-              <span className="text-sm">{members.length} deelnemers</span>
+              <span className="text-sm">{members.length} participants</span>
             </div>
           </div>
         </div>
 
         {/* Quick Members List */}
         <div className="card p-6">
-          <h2 className="text-lg font-semibold mb-4">Deelnemers</h2>
+          <h2 className="text-lg font-semibold mb-4">Participants</h2>
           <div className="space-y-2">
             {members.slice(0, 5).map((member) => (
               <div
@@ -574,7 +574,7 @@ function OverviewTab({
             ))}
             {members.length > 5 && (
               <p className="text-sm text-white/50 text-center pt-2">
-                +{members.length - 5} meer
+                +{members.length - 5} more
               </p>
             )}
           </div>
@@ -588,11 +588,11 @@ function MediaTab({ tripId: _tripId }: { tripId: string }) {
   return (
     <div className="card p-12 text-center">
       <Camera className="w-16 h-16 text-white/20 mx-auto mb-4" />
-      <h2 className="text-xl font-semibold mb-2">Media Galerij</h2>
+      <h2 className="text-xl font-semibold mb-2">Media Gallery</h2>
       <p className="text-white/50 mb-6">
-        Upload en bekijk foto's en video's van de reis.
+        Upload and view photos and videos from the trip.
         <br />
-        Na de reis kan hier een aftermovie worden gegenereerd.
+        After the trip, an aftermovie can be generated here.
       </p>
       <button className="btn-primary">Upload Media</button>
     </div>

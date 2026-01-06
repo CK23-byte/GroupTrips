@@ -4,6 +4,7 @@ import {
   Plus,
   Plane,
   Users,
+  User,
   Calendar,
   ChevronRight,
   LogOut,
@@ -88,15 +89,15 @@ export default function DashboardPage() {
     const hoursUntil = (departure.getTime() - now.getTime()) / (1000 * 60 * 60);
 
     if (trip.status === 'completed') {
-      return { label: 'Voltooid', color: 'bg-gray-500' };
+      return { label: 'Completed', color: 'bg-gray-500' };
     }
     if (hoursUntil < 0) {
-      return { label: 'Onderweg', color: 'bg-green-500' };
+      return { label: 'In Progress', color: 'bg-green-500' };
     }
     if (hoursUntil <= 24) {
-      return { label: 'Binnenkort', color: 'bg-yellow-500' };
+      return { label: 'Soon', color: 'bg-yellow-500' };
     }
-    return { label: 'Gepland', color: 'bg-blue-500' };
+    return { label: 'Planned', color: 'bg-blue-500' };
   }
 
   return (
@@ -110,10 +111,17 @@ export default function DashboardPage() {
           </Link>
 
           <div className="flex items-center gap-4">
-            <span className="text-white/70">{user?.name}</span>
+            <Link
+              to="/profile"
+              className="flex items-center gap-2 px-3 py-2 hover:bg-white/10 rounded-lg transition-colors"
+            >
+              <span className="text-white/70">{user?.name?.split(' ')[0]}</span>
+              <User className="w-5 h-5 text-white/50" />
+            </Link>
             <button
               onClick={handleSignOut}
               className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+              title="Sign out"
             >
               <LogOut className="w-5 h-5" />
             </button>
@@ -126,9 +134,9 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between mb-8">
           <div>
             <h1 className="text-3xl font-bold mb-2">
-              Welkom terug, {user?.name?.split(' ')[0]}!
+              Welcome back, {user?.name?.split(' ')[0]}!
             </h1>
-            <p className="text-white/60">Beheer je trips en bekijk aankomende reizen</p>
+            <p className="text-white/60">Manage your trips and view upcoming travels</p>
           </div>
 
           <div className="flex gap-3">
@@ -141,7 +149,7 @@ export default function DashboardPage() {
               className="btn-primary flex items-center gap-2"
             >
               <Plus className="w-5 h-5" />
-              Nieuwe Trip
+              New Trip
             </button>
           </div>
         </div>
@@ -150,24 +158,24 @@ export default function DashboardPage() {
         {loading ? (
           <div className="text-center py-12">
             <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-4" />
-            <p className="text-white/50">Trips laden...</p>
+            <p className="text-white/50">Loading trips...</p>
           </div>
         ) : trips.length === 0 ? (
           <div className="card p-12 text-center">
             <Plane className="w-16 h-16 text-white/20 mx-auto mb-4" />
-            <h2 className="text-xl font-semibold mb-2">Nog geen trips</h2>
+            <h2 className="text-xl font-semibold mb-2">No trips yet</h2>
             <p className="text-white/50 mb-6">
-              Maak je eerste trip aan of join een bestaande trip met een lobby code
+              Create your first trip or join an existing one with a lobby code
             </p>
             <div className="flex gap-3 justify-center">
               <button
                 onClick={() => setShowCreateModal(true)}
                 className="btn-primary"
               >
-                Maak Trip
+                Create Trip
               </button>
               <Link to="/join" className="btn-secondary">
-                Join met Code
+                Join with Code
               </Link>
             </div>
           </div>
@@ -228,7 +236,7 @@ function TripCard({
         <div className="flex items-center gap-1">
           <Calendar className="w-4 h-4" />
           <span>
-            {departure.toLocaleDateString('nl-NL', {
+            {departure.toLocaleDateString('en-US', {
               day: 'numeric',
               month: 'short',
             })}
@@ -236,7 +244,7 @@ function TripCard({
         </div>
         <div className="flex items-center gap-1">
           <Users className="w-4 h-4" />
-          <span>{trip.members?.length || 0} leden</span>
+          <span>{trip.members?.length || 0} members</span>
         </div>
       </div>
     </Link>
@@ -268,13 +276,13 @@ function CreateTripModal({
 
     // Validate departure time
     if (!departureTime) {
-      setError('Selecteer een vertrekdatum en tijd');
+      setError('Please select a departure date and time');
       return;
     }
 
     const departureDate = new Date(departureTime);
     if (isNaN(departureDate.getTime())) {
-      setError('Ongeldige datum');
+      setError('Invalid date');
       return;
     }
 
@@ -326,7 +334,7 @@ function CreateTripModal({
       setCreatedTrip(trip as Trip);
     } catch (err) {
       console.error('[handleCreate] Unexpected error:', err);
-      setError('Onverwachte fout: ' + String(err));
+      setError('Unexpected error: ' + String(err));
     }
 
     setLoading(false);
@@ -347,9 +355,9 @@ function CreateTripModal({
           <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
             <Check className="w-8 h-8 text-green-400" />
           </div>
-          <h2 className="text-2xl font-bold mb-2">Trip aangemaakt!</h2>
+          <h2 className="text-2xl font-bold mb-2">Trip Created!</h2>
           <p className="text-white/60 mb-6">
-            Deel de lobby code met je groep om ze uit te nodigen
+            Share the lobby code with your group to invite them
           </p>
 
           <div className="bg-white/5 rounded-xl p-4 mb-6">
@@ -373,14 +381,14 @@ function CreateTripModal({
 
           <div className="flex gap-3">
             <button onClick={onClose} className="btn-secondary flex-1">
-              Sluiten
+              Close
             </button>
             <Link
               to={`/trip/${createdTrip.id}`}
               className="btn-primary flex-1 text-center"
               onClick={onCreated}
             >
-              Naar Trip
+              Go to Trip
             </Link>
           </div>
         </div>
@@ -391,7 +399,7 @@ function CreateTripModal({
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="card p-8 max-w-md w-full">
-        <h2 className="text-2xl font-bold mb-6">Nieuwe Trip Aanmaken</h2>
+        <h2 className="text-2xl font-bold mb-6">Create New Trip</h2>
 
         {error && (
           <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 mb-6 text-red-200 text-sm">
@@ -402,34 +410,34 @@ function CreateTripModal({
         <form onSubmit={handleCreate} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-white/70 mb-2">
-              Trip Naam
+              Trip Name
             </label>
             <input
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="input-field"
-              placeholder="Weekend Barcelona"
+              placeholder="Weekend in Barcelona"
               required
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-white/70 mb-2">
-              Beschrijving (optioneel)
+              Description (optional)
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="input-field resize-none"
               rows={3}
-              placeholder="Een korte beschrijving van de trip..."
+              placeholder="A short description of the trip..."
             />
           </div>
 
           <div>
             <label className="block text-sm font-medium text-white/70 mb-2">
-              Vertrekdatum & tijd
+              Departure Date & Time
             </label>
             <input
               type="datetime-local"
@@ -446,14 +454,14 @@ function CreateTripModal({
               onClick={onClose}
               className="btn-secondary flex-1"
             >
-              Annuleren
+              Cancel
             </button>
             <button
               type="submit"
               disabled={loading}
               className="btn-primary flex-1 disabled:opacity-50"
             >
-              {loading ? 'Aanmaken...' : 'Aanmaken'}
+              {loading ? 'Creating...' : 'Create Trip'}
             </button>
           </div>
         </form>

@@ -19,12 +19,12 @@ export default function RegisterPage() {
     setError('');
 
     if (password !== confirmPassword) {
-      setError('Wachtwoorden komen niet overeen');
+      setError('Passwords do not match');
       return;
     }
 
     if (password.length < 6) {
-      setError('Wachtwoord moet minimaal 6 tekens zijn');
+      setError('Password must be at least 6 characters');
       return;
     }
 
@@ -49,7 +49,7 @@ export default function RegisterPage() {
         </Link>
 
         <div className="card p-8">
-          <h1 className="text-2xl font-bold text-center mb-6">Account aanmaken</h1>
+          <h1 className="text-2xl font-bold text-center mb-6">Create Account</h1>
 
           {error && (
             <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 mb-6 text-red-200 text-sm">
@@ -60,7 +60,7 @@ export default function RegisterPage() {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-white/70 mb-2">
-                Naam
+                Name
               </label>
               <div className="relative">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
@@ -69,7 +69,7 @@ export default function RegisterPage() {
                   value={name}
                   onChange={(e) => setName(e.target.value)}
                   className="input-field pl-12"
-                  placeholder="Jouw naam"
+                  placeholder="Your name"
                   required
                 />
               </div>
@@ -86,7 +86,7 @@ export default function RegisterPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   className="input-field pl-12"
-                  placeholder="jouw@email.nl"
+                  placeholder="your@email.com"
                   required
                 />
               </div>
@@ -94,7 +94,7 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-sm font-medium text-white/70 mb-2">
-                Wachtwoord
+                Password
               </label>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
@@ -103,7 +103,7 @@ export default function RegisterPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="input-field pl-12 pr-12"
-                  placeholder="Minimaal 6 tekens"
+                  placeholder="At least 6 characters"
                   required
                 />
                 <button
@@ -122,7 +122,7 @@ export default function RegisterPage() {
 
             <div>
               <label className="block text-sm font-medium text-white/70 mb-2">
-                Bevestig wachtwoord
+                Confirm Password
               </label>
               <div className="relative">
                 <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
@@ -131,7 +131,7 @@ export default function RegisterPage() {
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="input-field pl-12"
-                  placeholder="Herhaal wachtwoord"
+                  placeholder="Repeat password"
                   required
                 />
               </div>
@@ -142,14 +142,14 @@ export default function RegisterPage() {
               disabled={loading}
               className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Account aanmaken...' : 'Registreren'}
+              {loading ? 'Creating account...' : 'Sign Up'}
             </button>
           </form>
 
           <div className="mt-6 text-center text-sm text-white/50">
-            Heb je al een account?{' '}
+            Already have an account?{' '}
             <Link to="/login" className="text-blue-400 hover:text-blue-300">
-              Log hier in
+              Sign in here
             </Link>
           </div>
         </div>

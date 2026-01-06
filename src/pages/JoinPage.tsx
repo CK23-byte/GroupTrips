@@ -17,7 +17,7 @@ export default function JoinPage() {
     setError('');
 
     if (lobbyCode.length !== 6) {
-      setError('Lobby code moet 6 tekens zijn');
+      setError('Lobby code must be 6 characters');
       return;
     }
 
@@ -54,9 +54,9 @@ export default function JoinPage() {
         </Link>
 
         <div className="card p-8">
-          <h1 className="text-2xl font-bold text-center mb-2">Join een Trip</h1>
+          <h1 className="text-2xl font-bold text-center mb-2">Join a Trip</h1>
           <p className="text-white/50 text-center mb-6">
-            Voer de 6-cijferige lobby code in die je van de admin hebt ontvangen
+            Enter the 6-character lobby code you received from the admin
           </p>
 
           {error && (
@@ -89,23 +89,23 @@ export default function JoinPage() {
               disabled={loading || lobbyCode.length !== 6}
               className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {loading ? 'Joinen...' : 'Join Trip'}
+              {loading ? 'Joining...' : 'Join Trip'}
             </button>
           </form>
 
           {!user && (
             <div className="mt-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
               <p className="text-sm text-blue-200">
-                Je moet ingelogd zijn om een trip te joinen. Je wordt doorgestuurd
-                naar de login pagina.
+                You need to be logged in to join a trip. You will be redirected
+                to the login page.
               </p>
             </div>
           )}
 
           <div className="mt-6 text-center text-sm text-white/50">
-            Nog geen account?{' '}
+            Don't have an account?{' '}
             <Link to="/register" className="text-blue-400 hover:text-blue-300">
-              Registreer hier
+              Sign up here
             </Link>
           </div>
         </div>

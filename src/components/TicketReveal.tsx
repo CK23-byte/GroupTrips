@@ -25,11 +25,11 @@ export default function TicketReveal({
     return (
       <div className="card p-12 text-center">
         <AlertCircle className="w-16 h-16 text-white/20 mx-auto mb-4" />
-        <h2 className="text-xl font-semibold mb-2">Geen Ticket</h2>
+        <h2 className="text-xl font-semibold mb-2">No Ticket</h2>
         <p className="text-white/50">
-          De admin heeft nog geen ticket voor je geüpload.
+          The admin hasn't uploaded your ticket yet.
           <br />
-          Check later terug of neem contact op met de trip admin.
+          Check back later or contact the trip admin.
         </p>
       </div>
     );
@@ -47,23 +47,23 @@ export default function TicketReveal({
             </div>
           </div>
 
-          <h2 className="text-2xl font-bold mb-2">Ticket Verborgen</h2>
+          <h2 className="text-2xl font-bold mb-2">Ticket Hidden</h2>
           <p className="text-white/60 mb-6">
-            Je ticket wordt onthuld zodra de vertrektijd nadert.
+            Your ticket will be revealed as the departure time approaches.
           </p>
 
           <div className="bg-white/5 rounded-xl p-6 mb-6">
             <h3 className="text-sm font-medium text-white/70 mb-4">
-              Onthullings Schema
+              Reveal Schedule
             </h3>
             <div className="space-y-3 text-sm">
               <div className="flex items-center justify-between">
-                <span className="text-white/50">3 uur voor vertrek</span>
-                <span className="text-blue-400">QR-code zichtbaar</span>
+                <span className="text-white/50">3 hours before departure</span>
+                <span className="text-blue-400">QR code visible</span>
               </div>
               <div className="flex items-center justify-between">
-                <span className="text-white/50">1 uur voor vertrek</span>
-                <span className="text-green-400">Volledig ticket zichtbaar</span>
+                <span className="text-white/50">1 hour before departure</span>
+                <span className="text-green-400">Full ticket visible</span>
               </div>
             </div>
           </div>
@@ -81,7 +81,7 @@ export default function TicketReveal({
         <div className={`card p-8 ${showAnimation ? 'ticket-reveal' : ''}`}>
           <div className="text-center mb-6">
             <span className="inline-block px-3 py-1 bg-blue-500/20 text-blue-400 rounded-full text-sm font-medium">
-              QR-Code Onthuld!
+              QR Code Revealed!
             </span>
           </div>
 
@@ -101,7 +101,7 @@ export default function TicketReveal({
               </div>
             )}
             <p className="text-sm text-white/50 mt-4">
-              Scan deze code om in te checken
+              Scan this code to check in
             </p>
           </div>
 
@@ -109,21 +109,21 @@ export default function TicketReveal({
           <div className="bg-white/5 rounded-xl p-6 mb-6">
             <div className="flex items-center gap-3 mb-4">
               <Plane className="w-5 h-5 text-blue-400" />
-              <span className="text-lg font-semibold">{ticket.type === 'flight' ? 'Vlucht' : ticket.type === 'train' ? 'Trein' : 'Reis'}</span>
+              <span className="text-lg font-semibold">{ticket.type === 'flight' ? 'Flight' : ticket.type === 'train' ? 'Train' : 'Trip'}</span>
             </div>
 
             <div className="grid grid-cols-2 gap-4 text-sm">
               <div>
-                <p className="text-white/40 mb-1">Vertrek</p>
+                <p className="text-white/40 mb-1">Departure</p>
                 <p className="font-medium">
-                  {new Date(ticket.departure_time).toLocaleTimeString('nl-NL', {
+                  {new Date(ticket.departure_time).toLocaleTimeString('en-US', {
                     hour: '2-digit',
                     minute: '2-digit',
                   })}
                 </p>
               </div>
               <div>
-                <p className="text-white/40 mb-1">Referentie</p>
+                <p className="text-white/40 mb-1">Reference</p>
                 <p className="font-medium font-mono">
                   {ticket.booking_reference || '***'}
                 </p>
@@ -134,10 +134,10 @@ export default function TicketReveal({
             <div className="mt-4 p-4 bg-fuchsia-500/10 border border-fuchsia-500/30 rounded-xl">
               <div className="flex items-center gap-2 text-fuchsia-400">
                 <MapPin className="w-4 h-4" />
-                <span className="text-sm font-medium">Bestemming: ???</span>
+                <span className="text-sm font-medium">Destination: ???</span>
               </div>
               <p className="text-xs text-white/50 mt-1">
-                Wordt over 1 uur onthuld
+                Will be revealed in 1 hour
               </p>
             </div>
           </div>
@@ -154,7 +154,7 @@ export default function TicketReveal({
       <div className={`card p-8 ${showAnimation ? 'ticket-reveal' : ''}`}>
         <div className="text-center mb-6">
           <span className="inline-block px-3 py-1 bg-green-500/20 text-green-400 rounded-full text-sm font-medium">
-            Volledig Ticket Onthuld!
+            Full Ticket Revealed!
           </span>
         </div>
 
@@ -174,7 +174,7 @@ export default function TicketReveal({
           <div className="flex items-center gap-3 mb-6">
             <Plane className="w-6 h-6 text-blue-400" />
             <div>
-              <p className="text-sm text-white/50">{ticket.carrier || 'Vervoerder'}</p>
+              <p className="text-sm text-white/50">{ticket.carrier || 'Carrier'}</p>
               <p className="text-xl font-bold">
                 {ticket.departure_location} → {ticket.arrival_location}
               </p>
@@ -183,16 +183,16 @@ export default function TicketReveal({
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <DetailItem
-              label="Vertrek"
-              value={new Date(ticket.departure_time).toLocaleTimeString('nl-NL', {
+              label="Departure"
+              value={new Date(ticket.departure_time).toLocaleTimeString('en-US', {
                 hour: '2-digit',
                 minute: '2-digit',
               })}
             />
             {ticket.arrival_time && (
               <DetailItem
-                label="Aankomst"
-                value={new Date(ticket.arrival_time).toLocaleTimeString('nl-NL', {
+                label="Arrival"
+                value={new Date(ticket.arrival_time).toLocaleTimeString('en-US', {
                   hour: '2-digit',
                   minute: '2-digit',
                 })}
@@ -200,13 +200,13 @@ export default function TicketReveal({
             )}
             {ticket.gate && <DetailItem label="Gate" value={ticket.gate} />}
             {ticket.seat_number && (
-              <DetailItem label="Stoel" value={ticket.seat_number} />
+              <DetailItem label="Seat" value={ticket.seat_number} />
             )}
           </div>
 
           {ticket.booking_reference && (
             <div className="mt-4 pt-4 border-t border-white/10">
-              <p className="text-sm text-white/40 mb-1">Booking Referentie</p>
+              <p className="text-sm text-white/40 mb-1">Booking Reference</p>
               <p className="font-mono text-lg">{ticket.booking_reference}</p>
             </div>
           )}
@@ -256,7 +256,7 @@ function CountdownToReveal({
       const diff = revealTime.getTime() - Date.now();
 
       if (diff <= 0) {
-        setTimeLeft('Nu!');
+        setTimeLeft('Now!');
         return;
       }
 
@@ -264,7 +264,7 @@ function CountdownToReveal({
       const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
       const seconds = Math.floor((diff % (1000 * 60)) / 1000);
 
-      setTimeLeft(`${hours}u ${minutes}m ${seconds}s`);
+      setTimeLeft(`${hours}h ${minutes}m ${seconds}s`);
     };
 
     update();
@@ -275,7 +275,7 @@ function CountdownToReveal({
   return (
     <div className="text-center">
       <p className="text-sm text-white/50 mb-1">
-        {fullReveal ? 'Volledige onthulling over:' : 'QR-code beschikbaar over:'}
+        {fullReveal ? 'Full reveal in:' : 'QR code available in:'}
       </p>
       <p className="text-2xl font-mono font-bold text-blue-400">{timeLeft}</p>
     </div>

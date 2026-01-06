@@ -8,6 +8,9 @@ import JoinPage from './pages/JoinPage';
 import DashboardPage from './pages/DashboardPage';
 import TripLobbyPage from './pages/TripLobbyPage';
 import TripAdminPage from './pages/TripAdminPage';
+import ProfilePage from './pages/ProfilePage';
+import TermsPage from './pages/TermsPage';
+import PrivacyPage from './pages/PrivacyPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
@@ -67,6 +70,8 @@ function AppRoutes() {
         }
       />
       <Route path="/join" element={<JoinPage />} />
+      <Route path="/terms" element={<TermsPage />} />
+      <Route path="/privacy" element={<PrivacyPage />} />
 
       {/* Protected routes */}
       <Route
@@ -74,6 +79,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute>
             <DashboardPage />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute>
+            <ProfilePage />
           </ProtectedRoute>
         }
       />
