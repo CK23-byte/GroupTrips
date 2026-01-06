@@ -23,6 +23,23 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
+  // Check for payment return on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentStatus = urlParams.get('payment');
+    const savedTripData = sessionStorage.getItem('pendingTripData');
+    const pendingPayment = sessionStorage.getItem('pendingPayment');
+
+    // If returning from payment, open the modal to handle it
+    if ((paymentStatus === 'success' || pendingPayment === 'true') && savedTripData) {
+      setShowCreateModal(true);
+    } else if (paymentStatus === 'cancelled') {
+      // Clear URL params for cancelled payment
+      window.history.replaceState({}, '', window.location.pathname);
+      sessionStorage.removeItem('pendingPayment');
+    }
+  }, []);
+
   useEffect(() => {
     if (user) {
       loadTrips();
