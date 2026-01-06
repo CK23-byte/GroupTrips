@@ -287,6 +287,7 @@ export default function TripLobbyPage() {
             schedule={schedule}
             revealStatus={revealStatus}
             onViewTicket={() => setActiveTab('tickets')}
+            isAdmin={isAdmin}
           />
         )}
         {activeTab === 'tickets' && (
@@ -408,6 +409,14 @@ function TimeUnit({ value, label }: { value: number; label: string }) {
   );
 }
 
+// Check if activity should be revealed (1 hour before start time)
+function isActivityRevealed(startTime: string): boolean {
+  const activityTime = new Date(startTime).getTime();
+  const now = Date.now();
+  const oneHourBefore = activityTime - (60 * 60 * 1000);
+  return now >= oneHourBefore;
+}
+
 function OverviewTab({
   trip,
   ticket,
@@ -416,6 +425,7 @@ function OverviewTab({
   schedule,
   revealStatus,
   onViewTicket,
+  isAdmin,
 }: {
   trip: Trip;
   ticket: Ticket | null;
@@ -424,6 +434,7 @@ function OverviewTab({
   schedule: ScheduleItem[];
   revealStatus: string;
   onViewTicket: () => void;
+  isAdmin: boolean;
 }) {
   const pinnedMessages = messages.filter((m) => m.is_pinned);
   const upcomingSchedule = schedule.slice(0, 3);
@@ -492,36 +503,47 @@ function OverviewTab({
               Upcoming Activities
             </h2>
             <div className="space-y-3">
-              {upcomingSchedule.map((item) => (
-                <div
-                  key={item.id}
-                  className="flex items-center gap-4 p-3 bg-white/5 rounded-xl"
-                >
-                  <div className="w-12 text-center">
-                    <p className="text-xs text-white/40">
-                      {new Date(item.start_time).toLocaleDateString('en-US', {
-                        day: 'numeric',
-                        month: 'short',
-                      })}
-                    </p>
-                    <p className="font-semibold">
-                      {new Date(item.start_time).toLocaleTimeString('en-US', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-medium">{item.title}</p>
-                    {item.location && (
-                      <p className="text-sm text-white/50 flex items-center gap-1">
-                        <MapPin className="w-3 h-3" />
-                        {item.location}
-                      </p>
+              {upcomingSchedule.map((item) => {
+                const revealed = isAdmin || isActivityRevealed(item.start_time);
+                return (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-4 p-3 bg-white/5 rounded-xl relative overflow-hidden"
+                  >
+                    {!revealed && (
+                      <div className="absolute inset-0 bg-slate-800/90 backdrop-blur-sm z-10 flex items-center justify-center">
+                        <div className="text-center">
+                          <p className="text-sm font-medium text-fuchsia-400">Surprise Activity</p>
+                          <p className="text-xs text-white/40">Reveals 1h before start</p>
+                        </div>
+                      </div>
                     )}
+                    <div className="w-12 text-center">
+                      <p className="text-xs text-white/40">
+                        {new Date(item.start_time).toLocaleDateString('en-US', {
+                          day: 'numeric',
+                          month: 'short',
+                        })}
+                      </p>
+                      <p className="font-semibold">
+                        {new Date(item.start_time).toLocaleTimeString('en-US', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="font-medium">{revealed ? item.title : '???'}</p>
+                      {revealed && item.location && (
+                        <p className="text-sm text-white/50 flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {item.location}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

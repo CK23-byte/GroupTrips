@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plane, Mail, Lock, User, Eye, EyeOff } from 'lucide-react';
+import { Plane, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function RegisterPage() {
@@ -131,36 +131,30 @@ export default function RegisterPage() {
               <label className="block text-sm font-medium text-white/70 mb-2">
                 Name
               </label>
-              <div className="relative">
-                <User className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
-                <input
-                  type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  className="input-field pl-12"
-                  placeholder="Your name"
-                  autoComplete="name"
-                  required
-                />
-              </div>
+              <input
+                type="text"
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                className="input-field"
+                placeholder="Your name"
+                autoComplete="name"
+                required
+              />
             </div>
 
             <div>
               <label className="block text-sm font-medium text-white/70 mb-2">
                 Email
               </label>
-              <div className="relative">
-                <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="input-field pl-12"
-                  placeholder="your@email.com"
-                  autoComplete="email"
-                  required
-                />
-              </div>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="input-field"
+                placeholder="your@email.com"
+                autoComplete="email"
+                required
+              />
             </div>
 
             <div>
@@ -168,12 +162,11 @@ export default function RegisterPage() {
                 Password
               </label>
               <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="input-field pl-12 pr-12"
+                  className="input-field pr-12"
                   placeholder="At least 6 characters"
                   autoComplete="new-password"
                   required
@@ -196,18 +189,15 @@ export default function RegisterPage() {
               <label className="block text-sm font-medium text-white/70 mb-2">
                 Confirm Password
               </label>
-              <div className="relative">
-                <Lock className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  className="input-field pl-12"
-                  placeholder="Repeat password"
-                  autoComplete="new-password"
-                  required
-                />
-              </div>
+              <input
+                type={showPassword ? 'text' : 'password'}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                className="input-field"
+                placeholder="Repeat password"
+                autoComplete="new-password"
+                required
+              />
             </div>
 
             <button
