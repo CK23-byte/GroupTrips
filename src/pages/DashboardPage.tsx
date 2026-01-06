@@ -10,6 +10,8 @@ import {
   LogOut,
   Copy,
   Check,
+  CreditCard,
+  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, generateLobbyCode } from '../lib/supabase';
@@ -259,6 +261,7 @@ function CreateTripModal({
   onCreated: () => void;
 }) {
   const { user } = useAuth();
+  const [step, setStep] = useState<'details' | 'payment' | 'creating' | 'success'>('details');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [departureTime, setDepartureTime] = useState('');
@@ -266,15 +269,79 @@ function CreateTripModal({
   const [error, setError] = useState('');
   const [createdTrip, setCreatedTrip] = useState<Trip | null>(null);
   const [copied, setCopied] = useState(false);
+  const [pendingTripData, setPendingTripData] = useState<{
+    name: string;
+    description: string;
+    departureTime: string;
+  } | null>(null);
 
-  async function handleCreate(e: React.FormEvent) {
-    e.preventDefault();
-    if (!user) {
-      console.error('[handleCreate] No user');
-      return;
+  // Check for payment success on mount
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentStatus = urlParams.get('payment');
+    const savedTripData = sessionStorage.getItem('pendingTripData');
+
+    if (paymentStatus === 'success' && savedTripData) {
+      const tripData = JSON.parse(savedTripData);
+      setPendingTripData(tripData);
+      setName(tripData.name);
+      setDescription(tripData.description);
+      setDepartureTime(tripData.departureTime);
+      setStep('creating');
+      sessionStorage.removeItem('pendingTripData');
+      // Remove query params
+      window.history.replaceState({}, '', window.location.pathname);
+      // Auto-create trip after payment
+      createTripAfterPayment(tripData);
     }
+  }, []);
 
-    // Validate departure time
+  async function createTripAfterPayment(tripData: { name: string; description: string; departureTime: string }) {
+    if (!user) return;
+
+    setLoading(true);
+    const departureDate = new Date(tripData.departureTime);
+    const lobbyCode = generateLobbyCode();
+
+    try {
+      const { data: trip, error: tripError } = await supabase
+        .from('trips')
+        .insert({
+          name: tripData.name,
+          description: tripData.description || null,
+          lobby_code: lobbyCode,
+          admin_id: user.id,
+          departure_time: departureDate.toISOString(),
+          status: 'planning',
+        })
+        .select()
+        .single();
+
+      if (tripError) {
+        setError(tripError.message);
+        setStep('details');
+        setLoading(false);
+        return;
+      }
+
+      await supabase.from('trip_members').insert({
+        trip_id: trip.id,
+        user_id: user.id,
+        role: 'admin',
+      });
+
+      setCreatedTrip(trip as Trip);
+      setStep('success');
+    } catch (err) {
+      setError('Unexpected error: ' + String(err));
+      setStep('details');
+    }
+    setLoading(false);
+  }
+
+  function handleProceedToPayment(e: React.FormEvent) {
+    e.preventDefault();
+
     if (!departureTime) {
       setError('Please select a departure date and time');
       return;
@@ -287,57 +354,51 @@ function CreateTripModal({
     }
 
     setError('');
+    // Save trip data for after payment
+    const tripData = { name, description, departureTime };
+    sessionStorage.setItem('pendingTripData', JSON.stringify(tripData));
+    setStep('payment');
+  }
+
+  async function handlePayment() {
     setLoading(true);
-
-    const lobbyCode = generateLobbyCode();
-    console.log('[handleCreate] Creating trip with lobby code:', lobbyCode, 'departure:', departureDate.toISOString());
-
     try {
-      const { data: trip, error: tripError } = await supabase
-        .from('trips')
-        .insert({
-          name,
-          description: description || null,
-          lobby_code: lobbyCode,
-          admin_id: user.id,
-          departure_time: departureDate.toISOString(),
-          status: 'planning',
-        })
-        .select()
-        .single();
-
-      console.log('[handleCreate] Trip result:', trip, 'Error:', tripError);
-
-      if (tripError) {
-        console.error('[handleCreate] Trip creation error:', tripError);
-        setError(tripError.message);
-        setLoading(false);
-        return;
-      }
-
-      // Add creator as admin member
-      const { error: memberError } = await supabase.from('trip_members').insert({
-        trip_id: trip.id,
-        user_id: user.id,
-        role: 'admin',
+      const response = await fetch('/api/create-checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          tripName: name,
+          userId: user?.id,
+          email: user?.email,
+          successUrl: `${window.location.origin}/dashboard?payment=success`,
+          cancelUrl: `${window.location.origin}/dashboard?payment=cancelled`,
+        }),
       });
 
-      console.log('[handleCreate] Member insert error:', memberError);
+      const data = await response.json();
 
-      if (memberError) {
-        console.error('[handleCreate] Member creation error:', memberError);
-        setError(memberError.message);
-        setLoading(false);
-        return;
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        // Fallback to payment link if API fails
+        const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
+        if (paymentLink) {
+          window.location.href = paymentLink;
+        } else {
+          setError('Payment system unavailable. Please try again later.');
+          setLoading(false);
+        }
       }
-
-      setCreatedTrip(trip as Trip);
     } catch (err) {
-      console.error('[handleCreate] Unexpected error:', err);
-      setError('Unexpected error: ' + String(err));
+      // Fallback to direct payment link
+      const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
+      if (paymentLink) {
+        window.location.href = paymentLink;
+      } else {
+        setError('Payment failed. Please try again.');
+        setLoading(false);
+      }
     }
-
-    setLoading(false);
   }
 
   async function copyCode() {
@@ -348,7 +409,8 @@ function CreateTripModal({
     }
   }
 
-  if (createdTrip) {
+  // Success state
+  if (step === 'success' && createdTrip) {
     return (
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
         <div className="card p-8 max-w-md w-full text-center">
@@ -396,6 +458,88 @@ function CreateTripModal({
     );
   }
 
+  // Creating state (after payment)
+  if (step === 'creating') {
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="card p-8 max-w-md w-full text-center">
+          <div className="animate-spin w-12 h-12 border-3 border-blue-500 border-t-transparent rounded-full mx-auto mb-4" />
+          <h2 className="text-xl font-bold mb-2">Creating your trip...</h2>
+          <p className="text-white/60">
+            Payment successful! Setting up your trip now.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Payment step
+  if (step === 'payment') {
+    return (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="card p-8 max-w-md w-full">
+          <h2 className="text-2xl font-bold mb-2">Complete Payment</h2>
+          <p className="text-white/60 mb-6">
+            One-time payment to create your trip
+          </p>
+
+          {error && (
+            <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 mb-6 text-red-200 text-sm">
+              {error}
+            </div>
+          )}
+
+          <div className="bg-white/5 rounded-xl p-6 mb-6">
+            <div className="flex items-center justify-between mb-4">
+              <span className="text-white/70">Trip: {name}</span>
+              <span className="text-2xl font-bold">€24.99</span>
+            </div>
+            <ul className="space-y-2 text-sm text-white/60">
+              <li className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-green-400" />
+                Unlimited group members
+              </li>
+              <li className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-green-400" />
+                AI-powered ticket scanning
+              </li>
+              <li className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-green-400" />
+                Automatic aftermovie generation
+              </li>
+              <li className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-green-400" />
+                Live location sharing
+              </li>
+            </ul>
+          </div>
+
+          <div className="flex gap-3">
+            <button
+              onClick={() => setStep('details')}
+              className="btn-secondary flex-1"
+            >
+              Back
+            </button>
+            <button
+              onClick={handlePayment}
+              disabled={loading}
+              className="btn-primary flex-1 flex items-center justify-center gap-2"
+            >
+              <CreditCard className="w-5 h-5" />
+              {loading ? 'Processing...' : 'Pay €24.99'}
+            </button>
+          </div>
+
+          <p className="text-xs text-white/40 text-center mt-4">
+            Secure payment powered by Stripe
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Details step (default)
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="card p-8 max-w-md w-full">
@@ -407,7 +551,7 @@ function CreateTripModal({
           </div>
         )}
 
-        <form onSubmit={handleCreate} className="space-y-4">
+        <form onSubmit={handleProceedToPayment} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-white/70 mb-2">
               Trip Name
@@ -448,6 +592,13 @@ function CreateTripModal({
             />
           </div>
 
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mt-4">
+            <div className="flex items-center justify-between">
+              <span className="text-sm text-white/70">Trip creation fee</span>
+              <span className="font-bold">€24.99</span>
+            </div>
+          </div>
+
           <div className="flex gap-3 pt-4">
             <button
               type="button"
@@ -461,7 +612,7 @@ function CreateTripModal({
               disabled={loading}
               className="btn-primary flex-1 disabled:opacity-50"
             >
-              {loading ? 'Creating...' : 'Create Trip'}
+              Continue to Payment
             </button>
           </div>
         </form>
