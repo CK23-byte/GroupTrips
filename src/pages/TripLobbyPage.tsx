@@ -892,23 +892,40 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
 }
 
 function MediaTab({ tripId }: { tripId: string }) {
+  const { user } = useAuth();
   const [media, setMedia] = useState<Array<{ id: string; url: string; type: string; created_at: string }>>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState('');
   const [showAftermovie, setShowAftermovie] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generationStep, setGenerationStep] = useState(0);
+  const [aftermovieReady, setAftermovieReady] = useState(false);
+  const [currentSlide, setCurrentSlide] = useState(0);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     loadMedia();
   }, [tripId]);
 
+  // Slideshow effect for aftermovie preview
+  useEffect(() => {
+    if (aftermovieReady && media.length > 0) {
+      const interval = setInterval(() => {
+        setCurrentSlide((prev) => (prev + 1) % media.length);
+      }, 3000);
+      return () => clearInterval(interval);
+    }
+  }, [aftermovieReady, media.length]);
+
   async function loadMedia() {
-    const { data } = await supabase
+    console.log('[MediaTab] Loading media for trip:', tripId);
+    const { data, error } = await supabase
       .from('trip_media')
       .select('*')
       .eq('trip_id', tripId)
       .order('created_at', { ascending: false });
+
+    console.log('[MediaTab] Media loaded:', data?.length, 'Error:', error);
 
     if (data) {
       setMedia(data);
@@ -920,26 +937,58 @@ function MediaTab({ tripId }: { tripId: string }) {
     if (!files?.length) return;
 
     setUploading(true);
+    setUploadError('');
+
+    console.log('[MediaTab] Starting upload of', files.length, 'files');
 
     for (const file of Array.from(files)) {
-      const fileExt = file.name.split('.').pop();
-      const fileName = `${tripId}/${Date.now()}.${fileExt}`;
-      const isVideo = file.type.startsWith('video/');
+      try {
+        const fileExt = file.name.split('.').pop()?.toLowerCase();
+        const fileName = `${tripId}/${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+        const isVideo = file.type.startsWith('video/');
 
-      const { error: uploadError } = await supabase.storage
-        .from('trip-media')
-        .upload(fileName, file);
+        console.log('[MediaTab] Uploading file:', fileName, 'Type:', file.type);
 
-      if (!uploadError) {
+        // Upload to storage
+        const { error: uploadError, data: uploadData } = await supabase.storage
+          .from('trip-media')
+          .upload(fileName, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+
+        if (uploadError) {
+          console.error('[MediaTab] Storage upload error:', uploadError);
+          setUploadError(`Upload failed: ${uploadError.message}`);
+          continue;
+        }
+
+        console.log('[MediaTab] Storage upload success:', uploadData);
+
+        // Get public URL
         const { data: { publicUrl } } = supabase.storage
           .from('trip-media')
           .getPublicUrl(fileName);
 
-        await supabase.from('trip_media').insert({
+        console.log('[MediaTab] Public URL:', publicUrl);
+
+        // Save to database
+        const { error: dbError } = await supabase.from('trip_media').insert({
           trip_id: tripId,
+          uploaded_by: user?.id,
           url: publicUrl,
           type: isVideo ? 'video' : 'photo',
         });
+
+        if (dbError) {
+          console.error('[MediaTab] Database insert error:', dbError);
+          setUploadError(`Database error: ${dbError.message}`);
+        } else {
+          console.log('[MediaTab] Media saved to database');
+        }
+      } catch (err) {
+        console.error('[MediaTab] Unexpected upload error:', err);
+        setUploadError(`Unexpected error: ${String(err)}`);
       }
     }
 
@@ -951,26 +1000,24 @@ function MediaTab({ tripId }: { tripId: string }) {
   }
 
   async function generateAftermovie() {
+    if (media.length < 3) {
+      setUploadError('You need at least 3 photos to generate an aftermovie');
+      return;
+    }
+
     setGenerating(true);
     setShowAftermovie(true);
+    setAftermovieReady(false);
+    setCurrentSlide(0);
 
     // Simulate aftermovie generation steps
-    const steps = [
-      'Collecting media files...',
-      'Analyzing photo compositions...',
-      'Selecting best moments...',
-      'Syncing with music...',
-      'Adding transitions...',
-      'Rendering video...',
-      'Finalizing...',
-    ];
-
-    for (let i = 0; i < steps.length; i++) {
+    for (let i = 0; i < generationSteps.length; i++) {
       setGenerationStep(i);
-      await new Promise((r) => setTimeout(r, 2000));
+      await new Promise((r) => setTimeout(r, 1500));
     }
 
     setGenerating(false);
+    setAftermovieReady(true);
   }
 
   const generationSteps = [
@@ -993,6 +1040,13 @@ function MediaTab({ tripId }: { tripId: string }) {
           <br />
           After the trip, generate an aftermovie with music sync!
         </p>
+
+        {uploadError && (
+          <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 mb-6 text-red-200 text-sm">
+            {uploadError}
+          </div>
+        )}
+
         <input
           ref={fileInputRef}
           type="file"
@@ -1006,7 +1060,14 @@ function MediaTab({ tripId }: { tripId: string }) {
           disabled={uploading}
           className="btn-primary"
         >
-          {uploading ? 'Uploading...' : 'Upload Media'}
+          {uploading ? (
+            <span className="flex items-center gap-2">
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Uploading...
+            </span>
+          ) : (
+            'Upload Media'
+          )}
         </button>
       </div>
     );
@@ -1035,9 +1096,16 @@ function MediaTab({ tripId }: { tripId: string }) {
             className="btn-secondary flex items-center gap-2"
           >
             <Camera className="w-4 h-4" />
-            {uploading ? 'Uploading...' : 'Add Media'}
+            {uploading ? (
+              <span className="flex items-center gap-2">
+                <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Uploading...
+              </span>
+            ) : (
+              'Add Media'
+            )}
           </button>
-          {media.length >= 5 && (
+          {media.length >= 3 && (
             <button
               onClick={generateAftermovie}
               className="btn-primary flex items-center gap-2"
@@ -1050,6 +1118,13 @@ function MediaTab({ tripId }: { tripId: string }) {
           )}
         </div>
       </div>
+
+      {/* Error message */}
+      {uploadError && (
+        <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 text-red-200 text-sm">
+          {uploadError}
+        </div>
+      )}
 
       {/* Media grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -1069,6 +1144,7 @@ function MediaTab({ tripId }: { tripId: string }) {
                 src={item.url}
                 alt=""
                 className="w-full h-full object-cover"
+                loading="lazy"
               />
             )}
             <div className="absolute bottom-2 left-2 text-xs text-white/50 bg-black/50 px-2 py-1 rounded">
@@ -1083,8 +1159,8 @@ function MediaTab({ tripId }: { tripId: string }) {
 
       {/* Aftermovie Modal */}
       {showAftermovie && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 border border-white/10 rounded-2xl p-8 max-w-lg w-full text-center">
+        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="bg-slate-800 border border-white/10 rounded-2xl p-8 max-w-2xl w-full text-center">
             {generating ? (
               <>
                 <div className="w-20 h-20 rounded-full bg-gradient-to-br from-fuchsia-500 to-blue-500 flex items-center justify-center mx-auto mb-6 animate-pulse">
@@ -1106,37 +1182,102 @@ function MediaTab({ tripId }: { tripId: string }) {
                   Step {generationStep + 1} of {generationSteps.length}
                 </p>
               </>
-            ) : (
+            ) : aftermovieReady ? (
               <>
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-green-500 to-emerald-500 flex items-center justify-center mx-auto mb-6">
-                  <Check className="w-10 h-10" />
-                </div>
-                <h2 className="text-2xl font-bold mb-2">Aftermovie Ready!</h2>
-                <p className="text-white/60 mb-6">
-                  Your trip memories have been compiled into an amazing aftermovie
-                  with synchronized music.
+                <h2 className="text-2xl font-bold mb-2">Your Aftermovie</h2>
+                <p className="text-white/60 mb-4">
+                  {media.length} memories compiled with music sync
                 </p>
-                <div className="aspect-video bg-black rounded-xl mb-6 flex items-center justify-center">
-                  <div className="text-center">
-                    <svg className="w-16 h-16 text-white/30 mx-auto mb-2" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <polygon points="5 3 19 12 5 21 5 3" />
-                    </svg>
-                    <p className="text-sm text-white/40">Preview coming soon</p>
+
+                {/* Slideshow Preview */}
+                <div className="aspect-video bg-black rounded-xl mb-4 relative overflow-hidden">
+                  {media.filter(m => m.type === 'photo').map((item, index) => (
+                    <img
+                      key={item.id}
+                      src={item.url}
+                      alt=""
+                      className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
+                        index === currentSlide ? 'opacity-100' : 'opacity-0'
+                      }`}
+                    />
+                  ))}
+
+                  {/* Music visualization overlay */}
+                  <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-center pb-3">
+                    <div className="flex items-end gap-1">
+                      {[...Array(20)].map((_, i) => (
+                        <div
+                          key={i}
+                          className="w-1 bg-gradient-to-t from-fuchsia-500 to-blue-500 rounded-full animate-pulse"
+                          style={{
+                            height: `${Math.random() * 24 + 8}px`,
+                            animationDelay: `${i * 0.05}s`,
+                            animationDuration: '0.5s'
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Play indicator */}
+                  <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full">
+                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                    <span className="text-xs font-medium">Playing</span>
+                  </div>
+
+                  {/* Slide counter */}
+                  <div className="absolute top-4 right-4 bg-black/50 px-3 py-1.5 rounded-full text-xs">
+                    {currentSlide + 1} / {media.filter(m => m.type === 'photo').length}
                   </div>
                 </div>
+
+                {/* Thumbnail strip */}
+                <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
+                  {media.filter(m => m.type === 'photo').slice(0, 8).map((item, index) => (
+                    <button
+                      key={item.id}
+                      onClick={() => setCurrentSlide(index)}
+                      className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
+                        index === currentSlide ? 'border-fuchsia-500 scale-105' : 'border-transparent opacity-60'
+                      }`}
+                    >
+                      <img src={item.url} alt="" className="w-full h-full object-cover" />
+                    </button>
+                  ))}
+                  {media.filter(m => m.type === 'photo').length > 8 && (
+                    <div className="flex-shrink-0 w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-sm text-white/50">
+                      +{media.filter(m => m.type === 'photo').length - 8}
+                    </div>
+                  )}
+                </div>
+
                 <div className="flex gap-3">
                   <button
-                    onClick={() => setShowAftermovie(false)}
+                    onClick={() => {
+                      setShowAftermovie(false);
+                      setAftermovieReady(false);
+                    }}
                     className="btn-secondary flex-1"
                   >
                     Close
                   </button>
-                  <button className="btn-primary flex-1">
-                    Download Video
+                  <button
+                    className="btn-primary flex-1 flex items-center justify-center gap-2"
+                    onClick={() => {
+                      // For now, show a message that full video export requires backend
+                      setUploadError('Video export requires a video processing server. Slideshow preview shown instead.');
+                    }}
+                  >
+                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    Export Video
                   </button>
                 </div>
               </>
-            )}
+            ) : null}
           </div>
         </div>
       )}
