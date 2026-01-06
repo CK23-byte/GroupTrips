@@ -55,7 +55,7 @@ export default function LoginPage() {
           <span className="text-3xl font-bold">GroupTrips</span>
         </Link>
 
-        <div className="card p-8">
+        <div className="bg-slate-800 border border-white/10 rounded-2xl p-8">
           <h1 className="text-2xl font-bold text-center mb-6">Welcome back</h1>
 
           {error && (

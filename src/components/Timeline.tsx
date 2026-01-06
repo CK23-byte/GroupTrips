@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   Sparkles,
+  ExternalLink,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { ScheduleItem } from '../types';
@@ -103,7 +104,7 @@ export default function Timeline({ schedule, isAdmin, tripId }: TimelineProps) {
               className="btn-secondary flex items-center gap-2"
             >
               <Sparkles className="w-5 h-5" />
-              AI Suggestions
+              Suggestions
             </button>
           </div>
         )}
@@ -142,7 +143,7 @@ export default function Timeline({ schedule, isAdmin, tripId }: TimelineProps) {
             className="btn-secondary flex items-center gap-2"
           >
             <Sparkles className="w-5 h-5" />
-            AI Suggestions
+            Suggestions
           </button>
           <button
             onClick={() => setShowAddModal(true)}
@@ -319,6 +320,18 @@ function TimelineItem({
               <span>{item.location}</span>
             </div>
           )}
+
+          {item.booking_url && (
+            <a
+              href={item.booking_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors mt-1"
+            >
+              <ExternalLink className="w-3 h-3" />
+              <span>View booking</span>
+            </a>
+          )}
         </div>
 
         {isAdmin && (
@@ -351,6 +364,7 @@ function AddScheduleModal({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
+  const [bookingUrl, setBookingUrl] = useState('');
   const [type, setType] = useState<ScheduleItem['type']>('activity');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
@@ -365,6 +379,7 @@ function AddScheduleModal({
       title,
       description: description || null,
       location: location || null,
+      booking_url: bookingUrl || null,
       type,
       start_time: new Date(startTime).toISOString(),
       end_time: endTime ? new Date(endTime).toISOString() : null,
@@ -399,14 +414,14 @@ function AddScheduleModal({
             <select
               value={type}
               onChange={(e) => setType(e.target.value as ScheduleItem['type'])}
-              className="input-field"
+              className="input-field bg-slate-700 text-white"
             >
-              <option value="travel">Travel</option>
-              <option value="activity">Activity</option>
-              <option value="meal">Meal</option>
-              <option value="accommodation">Accommodation</option>
-              <option value="free_time">Free Time</option>
-              <option value="meeting">Meeting Point</option>
+              <option value="travel" className="bg-slate-700 text-white">Travel</option>
+              <option value="activity" className="bg-slate-700 text-white">Activity</option>
+              <option value="meal" className="bg-slate-700 text-white">Meal</option>
+              <option value="accommodation" className="bg-slate-700 text-white">Accommodation</option>
+              <option value="free_time" className="bg-slate-700 text-white">Free Time</option>
+              <option value="meeting" className="bg-slate-700 text-white">Meeting Point</option>
             </select>
           </div>
 
@@ -431,6 +446,20 @@ function AddScheduleModal({
               value={location}
               onChange={(e) => setLocation(e.target.value)}
               className="input-field"
+              placeholder="e.g., Amsterdam Central"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-white/70 mb-2">
+              Booking URL (optional)
+            </label>
+            <input
+              type="url"
+              value={bookingUrl}
+              onChange={(e) => setBookingUrl(e.target.value)}
+              className="input-field"
+              placeholder="https://booking-website.com/..."
             />
           </div>
 
@@ -576,7 +605,7 @@ function AISuggestionsModal({
             <Sparkles className="w-5 h-5" />
           </div>
           <div>
-            <h2 className="text-xl font-bold">AI Activity Suggestions</h2>
+            <h2 className="text-xl font-bold">Activity Suggestions</h2>
             <p className="text-sm text-white/50">Get personalized activity ideas for your trip</p>
           </div>
         </div>

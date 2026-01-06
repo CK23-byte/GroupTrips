@@ -73,6 +73,7 @@ export interface ScheduleItem {
   start_time: string;
   end_time?: string;
   type: 'travel' | 'activity' | 'meal' | 'accommodation' | 'free_time' | 'meeting';
+  booking_url?: string;
   created_at: string;
 }
 

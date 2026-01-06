@@ -286,6 +286,7 @@ export default function TripLobbyPage() {
             messages={messages}
             schedule={schedule}
             revealStatus={revealStatus}
+            onViewTicket={() => setActiveTab('tickets')}
           />
         )}
         {activeTab === 'tickets' && (
@@ -414,6 +415,7 @@ function OverviewTab({
   messages,
   schedule,
   revealStatus,
+  onViewTicket,
 }: {
   trip: Trip;
   ticket: Ticket | null;
@@ -421,6 +423,7 @@ function OverviewTab({
   messages: TripMessage[];
   schedule: ScheduleItem[];
   revealStatus: string;
+  onViewTicket: () => void;
 }) {
   const pinnedMessages = messages.filter((m) => m.is_pinned);
   const upcomingSchedule = schedule.slice(0, 3);
@@ -447,9 +450,9 @@ function OverviewTab({
                     : 'Still hidden'}
                 </p>
               </div>
-              <Link to="?tab=tickets" className="btn-primary text-sm">
+              <button onClick={onViewTicket} className="btn-primary text-sm">
                 View Ticket
-              </Link>
+              </button>
             </div>
           ) : (
             <p className="text-white/50">
