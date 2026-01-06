@@ -118,6 +118,17 @@ export default function Timeline({ schedule, isAdmin, tripId }: TimelineProps) {
             }}
           />
         )}
+
+        {showAddModal && (
+          <AddScheduleModal
+            tripId={tripId}
+            onClose={() => setShowAddModal(false)}
+            onAdded={() => {
+              setShowAddModal(false);
+              window.location.reload();
+            }}
+          />
+        )}
       </div>
     );
   }
