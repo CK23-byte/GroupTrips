@@ -216,4 +216,7 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.trip_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.member_locations;
 
 -- Storage buckets setup (run in Supabase dashboard or via API)
--- Create buckets: 'tickets', 'documents', 'media', 'avatars'
+-- Create buckets: 'tickets', 'documents', 'trip-media', 'avatars'
+-- IMPORTANT: The trip-media bucket must be public for photos to display in the gallery
+-- In Supabase Dashboard: Storage > trip-media > Policies > New Policy
+-- Add a SELECT policy with "true" for public read access
