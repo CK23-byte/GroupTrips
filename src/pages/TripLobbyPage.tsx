@@ -299,7 +299,7 @@ export default function TripLobbyPage() {
           <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} />
         )}
         {activeTab === 'members' && (
-          <MembersList members={members} isAdmin={isAdmin} tripId={tripId!} />
+          <MembersList members={members} isAdmin={isAdmin} tripId={tripId!} lobbyCode={trip?.lobby_code} />
         )}
         {activeTab === 'location' && (
           <LocationTab tripId={tripId!} members={members} />
@@ -1042,7 +1042,7 @@ function MediaTab({ tripId }: { tripId: string }) {
       {/* Aftermovie Modal */}
       {showAftermovie && (
         <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="card p-8 max-w-lg w-full text-center">
+          <div className="bg-slate-800 border border-white/10 rounded-2xl p-8 max-w-lg w-full text-center">
             {generating ? (
               <>
                 <div className="w-20 h-20 rounded-full bg-gradient-to-br from-fuchsia-500 to-blue-500 flex items-center justify-center mx-auto mb-6 animate-pulse">

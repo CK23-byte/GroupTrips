@@ -6,6 +6,9 @@ import {
   MoreVertical,
   UserMinus,
   Shield,
+  Share2,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { TripMember } from '../types';
@@ -14,33 +17,91 @@ interface MembersListProps {
   members: TripMember[];
   isAdmin: boolean;
   tripId: string;
+  lobbyCode?: string;
 }
 
 export default function MembersList({
   members,
   isAdmin,
   tripId,
+  lobbyCode,
 }: MembersListProps) {
   const [showLocationMap, setShowLocationMap] = useState(false);
+  const [showInvite, setShowInvite] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   const admins = members.filter((m) => m.role === 'admin');
   const regularMembers = members.filter((m) => m.role === 'member');
 
+  async function copyInviteLink() {
+    const link = `${window.location.origin}/join?code=${lobbyCode}`;
+    await navigator.clipboard.writeText(link);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function copyCode() {
+    if (lobbyCode) {
+      await navigator.clipboard.writeText(lobbyCode);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  }
+
   return (
     <div className="space-y-6">
-      {/* Location toggle */}
-      <div className="flex justify-between items-center">
+      {/* Header with actions */}
+      <div className="flex flex-wrap justify-between items-center gap-4">
         <h2 className="text-xl font-semibold">
           {members.length} Participants
         </h2>
-        <button
-          onClick={() => setShowLocationMap(!showLocationMap)}
-          className="btn-secondary text-sm flex items-center gap-2"
-        >
-          <MapPin className="w-4 h-4" />
-          {showLocationMap ? 'List view' : 'Map view'}
-        </button>
+        <div className="flex gap-2">
+          {isAdmin && lobbyCode && (
+            <button
+              onClick={() => setShowInvite(!showInvite)}
+              className="btn-primary text-sm flex items-center gap-2"
+            >
+              <Share2 className="w-4 h-4" />
+              Invite Members
+            </button>
+          )}
+          <button
+            onClick={() => setShowLocationMap(!showLocationMap)}
+            className="btn-secondary text-sm flex items-center gap-2"
+          >
+            <MapPin className="w-4 h-4" />
+            {showLocationMap ? 'List view' : 'Map view'}
+          </button>
+        </div>
       </div>
+
+      {/* Invite Panel */}
+      {showInvite && lobbyCode && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4">
+          <h3 className="font-medium mb-2">Invite new members</h3>
+          <p className="text-sm text-white/60 mb-4">
+            Share the lobby code or invite link with friends to add them to this trip.
+          </p>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="flex-1 flex items-center gap-2 bg-white/5 rounded-lg px-4 py-2">
+              <span className="font-mono text-lg">{lobbyCode}</span>
+              <button
+                onClick={copyCode}
+                className="ml-auto p-2 hover:bg-white/10 rounded-lg transition-colors"
+              >
+                {copied ? <Check className="w-4 h-4 text-green-400" /> : <Copy className="w-4 h-4" />}
+              </button>
+            </div>
+            <button
+              onClick={copyInviteLink}
+              className="btn-secondary flex items-center justify-center gap-2"
+            >
+              <Copy className="w-4 h-4" />
+              Copy Invite Link
+            </button>
+          </div>
+        </div>
+      )}
 
       {showLocationMap ? (
         <LocationMap members={members} />
@@ -163,7 +224,7 @@ function MemberCard({
                 className="fixed inset-0 z-10"
                 onClick={() => setShowMenu(false)}
               />
-              <div className="absolute right-0 top-full mt-1 w-48 card p-2 z-20">
+              <div className="absolute right-0 top-full mt-1 w-48 bg-slate-800 border border-white/10 rounded-xl p-2 z-20">
                 <button
                   onClick={handleMakeAdmin}
                   className="w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-white/10 rounded-lg transition-colors"

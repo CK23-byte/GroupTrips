@@ -139,6 +139,7 @@ export default function RegisterPage() {
                   onChange={(e) => setName(e.target.value)}
                   className="input-field pl-12"
                   placeholder="Your name"
+                  autoComplete="name"
                   required
                 />
               </div>
@@ -156,6 +157,7 @@ export default function RegisterPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   className="input-field pl-12"
                   placeholder="your@email.com"
+                  autoComplete="email"
                   required
                 />
               </div>
@@ -173,6 +175,7 @@ export default function RegisterPage() {
                   onChange={(e) => setPassword(e.target.value)}
                   className="input-field pl-12 pr-12"
                   placeholder="At least 6 characters"
+                  autoComplete="new-password"
                   required
                 />
                 <button
@@ -201,6 +204,7 @@ export default function RegisterPage() {
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="input-field pl-12"
                   placeholder="Repeat password"
+                  autoComplete="new-password"
                   required
                 />
               </div>
