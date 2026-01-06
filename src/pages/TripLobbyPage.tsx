@@ -893,7 +893,7 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
 
 function MediaTab({ tripId }: { tripId: string }) {
   const { user } = useAuth();
-  const [media, setMedia] = useState<Array<{ id: string; url: string; type: string; created_at: string }>>([]);
+  const [media, setMedia] = useState<Array<{ id: string; file_url: string; type: string; created_at: string }>>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [showAftermovie, setShowAftermovie] = useState(false);
@@ -976,7 +976,7 @@ function MediaTab({ tripId }: { tripId: string }) {
         const { error: dbError } = await supabase.from('trip_media').insert({
           trip_id: tripId,
           uploaded_by: user?.id,
-          url: publicUrl,
+          file_url: publicUrl,
           type: isVideo ? 'video' : 'photo',
         });
 
@@ -1135,13 +1135,13 @@ function MediaTab({ tripId }: { tripId: string }) {
           >
             {item.type === 'video' ? (
               <video
-                src={item.url}
+                src={item.file_url}
                 className="w-full h-full object-cover"
                 controls
               />
             ) : (
               <img
-                src={item.url}
+                src={item.file_url}
                 alt=""
                 className="w-full h-full object-cover"
                 loading="lazy"
@@ -1194,7 +1194,7 @@ function MediaTab({ tripId }: { tripId: string }) {
                   {media.filter(m => m.type === 'photo').map((item, index) => (
                     <img
                       key={item.id}
-                      src={item.url}
+                      src={item.file_url}
                       alt=""
                       className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
                         index === currentSlide ? 'opacity-100' : 'opacity-0'
@@ -1241,7 +1241,7 @@ function MediaTab({ tripId }: { tripId: string }) {
                         index === currentSlide ? 'border-fuchsia-500 scale-105' : 'border-transparent opacity-60'
                       }`}
                     >
-                      <img src={item.url} alt="" className="w-full h-full object-cover" />
+                      <img src={item.file_url} alt="" className="w-full h-full object-cover" />
                     </button>
                   ))}
                   {media.filter(m => m.type === 'photo').length > 8 && (
