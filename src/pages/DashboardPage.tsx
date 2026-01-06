@@ -28,25 +28,50 @@ export default function DashboardPage() {
   }, [user]);
 
   async function loadTrips() {
-    if (!user) return;
+    if (!user) {
+      console.log('[loadTrips] No user, skipping');
+      setLoading(false);
+      return;
+    }
 
-    const { data: memberData } = await supabase
-      .from('trip_members')
-      .select('trip_id')
-      .eq('user_id', user.id);
+    console.log('[loadTrips] Loading trips for user:', user.id);
 
-    if (memberData && memberData.length > 0) {
-      const tripIds = memberData.map((m) => m.trip_id);
+    try {
+      const { data: memberData, error: memberError } = await supabase
+        .from('trip_members')
+        .select('trip_id')
+        .eq('user_id', user.id);
 
-      const { data: tripsData } = await supabase
-        .from('trips')
-        .select('*, members:trip_members(*)')
-        .in('id', tripIds)
-        .order('departure_time', { ascending: true });
+      console.log('[loadTrips] Member data:', memberData, 'Error:', memberError);
 
-      if (tripsData) {
-        setTrips(tripsData as (Trip & { members: TripMember[] })[]);
+      if (memberError) {
+        console.error('[loadTrips] Error fetching memberships:', memberError);
+        setLoading(false);
+        return;
       }
+
+      if (memberData && memberData.length > 0) {
+        const tripIds = memberData.map((m) => m.trip_id);
+        console.log('[loadTrips] Trip IDs:', tripIds);
+
+        const { data: tripsData, error: tripsError } = await supabase
+          .from('trips')
+          .select('*, members:trip_members(*)')
+          .in('id', tripIds)
+          .order('departure_time', { ascending: true });
+
+        console.log('[loadTrips] Trips data:', tripsData, 'Error:', tripsError);
+
+        if (tripsError) {
+          console.error('[loadTrips] Error fetching trips:', tripsError);
+        } else if (tripsData) {
+          setTrips(tripsData as (Trip & { members: TripMember[] })[]);
+        }
+      } else {
+        console.log('[loadTrips] No memberships found');
+      }
+    } catch (err) {
+      console.error('[loadTrips] Unexpected error:', err);
     }
 
     setLoading(false);
@@ -236,40 +261,62 @@ function CreateTripModal({
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!user) return;
+    if (!user) {
+      console.error('[handleCreate] No user');
+      return;
+    }
 
     setError('');
     setLoading(true);
 
     const lobbyCode = generateLobbyCode();
+    console.log('[handleCreate] Creating trip with lobby code:', lobbyCode);
 
-    const { data: trip, error: tripError } = await supabase
-      .from('trips')
-      .insert({
-        name,
-        description: description || null,
-        lobby_code: lobbyCode,
-        admin_id: user.id,
-        departure_time: new Date(departureTime).toISOString(),
-        status: 'planning',
-      })
-      .select()
-      .single();
+    try {
+      const { data: trip, error: tripError } = await supabase
+        .from('trips')
+        .insert({
+          name,
+          description: description || null,
+          lobby_code: lobbyCode,
+          admin_id: user.id,
+          departure_time: new Date(departureTime).toISOString(),
+          status: 'planning',
+        })
+        .select()
+        .single();
 
-    if (tripError) {
-      setError(tripError.message);
-      setLoading(false);
-      return;
+      console.log('[handleCreate] Trip result:', trip, 'Error:', tripError);
+
+      if (tripError) {
+        console.error('[handleCreate] Trip creation error:', tripError);
+        setError(tripError.message);
+        setLoading(false);
+        return;
+      }
+
+      // Add creator as admin member
+      const { error: memberError } = await supabase.from('trip_members').insert({
+        trip_id: trip.id,
+        user_id: user.id,
+        role: 'admin',
+      });
+
+      console.log('[handleCreate] Member insert error:', memberError);
+
+      if (memberError) {
+        console.error('[handleCreate] Member creation error:', memberError);
+        setError(memberError.message);
+        setLoading(false);
+        return;
+      }
+
+      setCreatedTrip(trip as Trip);
+    } catch (err) {
+      console.error('[handleCreate] Unexpected error:', err);
+      setError('Onverwachte fout: ' + String(err));
     }
 
-    // Add creator as admin member
-    await supabase.from('trip_members').insert({
-      trip_id: trip.id,
-      user_id: user.id,
-      role: 'admin',
-    });
-
-    setCreatedTrip(trip as Trip);
     setLoading(false);
   }
 
