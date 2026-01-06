@@ -21,7 +21,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Check active session
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
-        fetchUserProfile(session.user.id);
+        fetchUserProfile(session.user.id, session.user.email || '');
       } else {
         setLoading(false);
       }
@@ -31,9 +31,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
-          await fetchUserProfile(session.user.id);
+          await fetchUserProfile(session.user.id, session.user.email || '');
         } else if (event === 'SIGNED_OUT') {
           setUser(null);
+          setLoading(false);
         }
       }
     );
@@ -41,40 +42,75 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => subscription.unsubscribe();
   }, []);
 
-  async function fetchUserProfile(userId: string) {
-    const { data, error } = await supabase
-      .from('users')
-      .select('*')
-      .eq('id', userId)
-      .single();
+  async function fetchUserProfile(userId: string, email: string) {
+    try {
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
 
-    if (error) {
-      console.error('Error fetching user profile:', error);
-    } else {
-      setUser(data as User);
+      if (error) {
+        console.error('Error fetching user profile:', error);
+
+        // If profile doesn't exist, create it
+        if (error.code === 'PGRST116') {
+          const name = email.split('@')[0];
+          const { data: newUser, error: insertError } = await supabase
+            .from('users')
+            .insert({ id: userId, email, name })
+            .select()
+            .single();
+
+          if (insertError) {
+            console.error('Error creating user profile:', insertError);
+            // Still set user with basic info so app works
+            setUser({ id: userId, email, name, created_at: new Date().toISOString() } as User);
+          } else {
+            setUser(newUser as User);
+          }
+        } else {
+          // Other error - still allow login with basic user info
+          setUser({ id: userId, email, name: email.split('@')[0], created_at: new Date().toISOString() } as User);
+        }
+      } else {
+        setUser(data as User);
+      }
+    } catch (err) {
+      console.error('Unexpected error fetching profile:', err);
+      // Fallback - allow login even if profile fetch fails
+      setUser({ id: userId, email, name: email.split('@')[0], created_at: new Date().toISOString() } as User);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   async function signIn(email: string, password: string) {
+    setLoading(true);
     const { error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
     if (error) {
+      setLoading(false);
       return { error: error.message };
     }
     return { error: null };
   }
 
   async function signUp(email: string, password: string, name: string) {
+    setLoading(true);
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: { name }
+      }
     });
 
     if (error) {
+      setLoading(false);
       return { error: error.message };
     }
 
@@ -87,10 +123,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       });
 
       if (profileError) {
-        return { error: profileError.message };
+        console.error('Profile creation error:', profileError);
+        // Don't fail registration if profile creation fails
+        // The fetchUserProfile will create it on next login
       }
     }
 
+    setLoading(false);
     return { error: null };
   }
 
