@@ -11,7 +11,6 @@ import {
   Copy,
   Check,
   CreditCard,
-  ExternalLink,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, generateLobbyCode } from '../lib/supabase';
@@ -269,7 +268,7 @@ function CreateTripModal({
   const [error, setError] = useState('');
   const [createdTrip, setCreatedTrip] = useState<Trip | null>(null);
   const [copied, setCopied] = useState(false);
-  const [pendingTripData, setPendingTripData] = useState<{
+  const [_pendingTripData, setPendingTripData] = useState<{
     name: string;
     description: string;
     departureTime: string;
