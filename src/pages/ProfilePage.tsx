@@ -22,14 +22,11 @@ export default function ProfilePage() {
   const navigate = useNavigate();
   const [name, setName] = useState(user?.name || '');
   const [avatar, setAvatar] = useState(user?.avatar_url || '🧑‍✈️');
-  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
-
-  const firstName = user?.name?.split(' ')[0] || 'User';
 
   async function handleUpdateProfile(e: React.FormEvent) {
     e.preventDefault();
@@ -71,7 +68,6 @@ export default function ProfilePage() {
       setMessage({ type: 'error', text: error.message });
     } else {
       setMessage({ type: 'success', text: 'Password changed successfully!' });
-      setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
     }
