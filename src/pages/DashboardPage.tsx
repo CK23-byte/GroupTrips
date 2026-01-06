@@ -266,11 +266,23 @@ function CreateTripModal({
       return;
     }
 
+    // Validate departure time
+    if (!departureTime) {
+      setError('Selecteer een vertrekdatum en tijd');
+      return;
+    }
+
+    const departureDate = new Date(departureTime);
+    if (isNaN(departureDate.getTime())) {
+      setError('Ongeldige datum');
+      return;
+    }
+
     setError('');
     setLoading(true);
 
     const lobbyCode = generateLobbyCode();
-    console.log('[handleCreate] Creating trip with lobby code:', lobbyCode);
+    console.log('[handleCreate] Creating trip with lobby code:', lobbyCode, 'departure:', departureDate.toISOString());
 
     try {
       const { data: trip, error: tripError } = await supabase
@@ -280,7 +292,7 @@ function CreateTripModal({
           description: description || null,
           lobby_code: lobbyCode,
           admin_id: user.id,
-          departure_time: new Date(departureTime).toISOString(),
+          departure_time: departureDate.toISOString(),
           status: 'planning',
         })
         .select()

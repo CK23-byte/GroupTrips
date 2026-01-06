@@ -54,62 +54,78 @@ export default function TripLobbyPage() {
   async function loadTripData() {
     if (!tripId || !user) return;
 
-    // Load trip
-    const { data: tripData } = await supabase
-      .from('trips')
-      .select('*')
-      .eq('id', tripId)
-      .single();
+    console.log('[TripLobby] Loading data for trip:', tripId);
 
-    if (tripData) {
-      setTrip(tripData as Trip);
-    }
+    try {
+      // Load trip
+      const { data: tripData, error: tripError } = await supabase
+        .from('trips')
+        .select('*')
+        .eq('id', tripId)
+        .single();
 
-    // Load members
-    const { data: membersData } = await supabase
-      .from('trip_members')
-      .select('*, user:users(*)')
-      .eq('trip_id', tripId);
+      console.log('[TripLobby] Trip:', tripData, 'Error:', tripError);
 
-    if (membersData) {
-      setMembers(membersData as TripMember[]);
-      const userMember = membersData.find((m) => m.user_id === user.id);
-      setIsAdmin(userMember?.role === 'admin');
-    }
+      if (tripData) {
+        setTrip(tripData as Trip);
+      }
 
-    // Load messages
-    const { data: messagesData } = await supabase
-      .from('trip_messages')
-      .select('*, sender:users(*)')
-      .eq('trip_id', tripId)
-      .order('created_at', { ascending: false })
-      .limit(50);
+      // Load members
+      const { data: membersData, error: membersError } = await supabase
+        .from('trip_members')
+        .select('*, user:users(*)')
+        .eq('trip_id', tripId);
 
-    if (messagesData) {
-      setMessages(messagesData as TripMessage[]);
-    }
+      console.log('[TripLobby] Members:', membersData, 'Error:', membersError);
 
-    // Load schedule
-    const { data: scheduleData } = await supabase
-      .from('schedule_items')
-      .select('*')
-      .eq('trip_id', tripId)
-      .order('start_time', { ascending: true });
+      if (membersData) {
+        setMembers(membersData as TripMember[]);
+        const userMember = membersData.find((m) => m.user_id === user.id);
+        setIsAdmin(userMember?.role === 'admin');
+      }
 
-    if (scheduleData) {
-      setSchedule(scheduleData as ScheduleItem[]);
-    }
+      // Load messages
+      const { data: messagesData, error: messagesError } = await supabase
+        .from('trip_messages')
+        .select('*, sender:users(*)')
+        .eq('trip_id', tripId)
+        .order('created_at', { ascending: false })
+        .limit(50);
 
-    // Load user's ticket
-    const { data: ticketData } = await supabase
-      .from('tickets')
-      .select('*')
-      .eq('trip_id', tripId)
-      .eq('member_id', user.id)
-      .single();
+      console.log('[TripLobby] Messages:', messagesData?.length, 'Error:', messagesError);
 
-    if (ticketData) {
-      setTicket(ticketData as Ticket);
+      if (messagesData) {
+        setMessages(messagesData as TripMessage[]);
+      }
+
+      // Load schedule
+      const { data: scheduleData, error: scheduleError } = await supabase
+        .from('schedule_items')
+        .select('*')
+        .eq('trip_id', tripId)
+        .order('start_time', { ascending: true });
+
+      console.log('[TripLobby] Schedule:', scheduleData?.length, 'Error:', scheduleError);
+
+      if (scheduleData) {
+        setSchedule(scheduleData as ScheduleItem[]);
+      }
+
+      // Load user's ticket - use maybeSingle to avoid 406 error when no ticket exists
+      const { data: ticketData, error: ticketError } = await supabase
+        .from('tickets')
+        .select('*')
+        .eq('trip_id', tripId)
+        .eq('member_id', user.id)
+        .maybeSingle();
+
+      console.log('[TripLobby] Ticket:', ticketData, 'Error:', ticketError);
+
+      if (ticketData) {
+        setTicket(ticketData as Ticket);
+      }
+    } catch (err) {
+      console.error('[TripLobby] Unexpected error:', err);
     }
 
     setLoading(false);
