@@ -279,8 +279,12 @@ function CreateTripModal({
     const urlParams = new URLSearchParams(window.location.search);
     const paymentStatus = urlParams.get('payment');
     const savedTripData = sessionStorage.getItem('pendingTripData');
+    const pendingPayment = sessionStorage.getItem('pendingPayment');
 
-    if (paymentStatus === 'success' && savedTripData) {
+    // Check if returning from payment (either via URL param or sessionStorage)
+    const isPaymentSuccess = paymentStatus === 'success' || (pendingPayment === 'true' && savedTripData);
+
+    if (isPaymentSuccess && savedTripData) {
       const tripData = JSON.parse(savedTripData);
       setPendingTripData(tripData);
       setName(tripData.name);
@@ -288,6 +292,7 @@ function CreateTripModal({
       setDepartureTime(tripData.departureTime);
       setStep('creating');
       sessionStorage.removeItem('pendingTripData');
+      sessionStorage.removeItem('pendingPayment');
       // Remove query params
       window.history.replaceState({}, '', window.location.pathname);
       // Auto-create trip after payment
@@ -361,39 +366,46 @@ function CreateTripModal({
 
   async function handlePayment() {
     setLoading(true);
-    try {
-      const response = await fetch('/api/create-checkout', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          tripName: name,
-          userId: user?.id,
-          email: user?.email,
-          successUrl: `${window.location.origin}/dashboard?payment=success`,
-          cancelUrl: `${window.location.origin}/dashboard?payment=cancelled`,
-        }),
-      });
 
-      const data = await response.json();
+    // Use Stripe Payment Link directly
+    const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
 
-      if (data.url) {
-        window.location.href = data.url;
-      } else {
-        // Fallback to payment link if API fails
-        const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
-        if (paymentLink) {
-          window.location.href = paymentLink;
+    if (paymentLink) {
+      // Add client_reference_id to track the user and prefilled_email
+      const url = new URL(paymentLink);
+      if (user?.id) {
+        url.searchParams.set('client_reference_id', user.id);
+      }
+      if (user?.email) {
+        url.searchParams.set('prefilled_email', user.email);
+      }
+      // Add success/cancel URL handling
+      sessionStorage.setItem('pendingPayment', 'true');
+      window.location.href = url.toString();
+    } else {
+      // Fallback to API if no payment link configured
+      try {
+        const response = await fetch('/api/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            tripName: name,
+            userId: user?.id,
+            email: user?.email,
+            successUrl: `${window.location.origin}/dashboard?payment=success`,
+            cancelUrl: `${window.location.origin}/dashboard?payment=cancelled`,
+          }),
+        });
+
+        const data = await response.json();
+
+        if (data.url) {
+          window.location.href = data.url;
         } else {
           setError('Payment system unavailable. Please try again later.');
           setLoading(false);
         }
-      }
-    } catch (err) {
-      // Fallback to direct payment link
-      const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
-      if (paymentLink) {
-        window.location.href = paymentLink;
-      } else {
+      } catch {
         setError('Payment failed. Please try again.');
         setLoading(false);
       }
