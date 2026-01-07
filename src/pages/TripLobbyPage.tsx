@@ -25,6 +25,7 @@ import {
   Play,
   Pause,
   Download,
+  EyeOff,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -536,16 +537,26 @@ function OverviewTab({
             <div className="space-y-3">
               {upcomingSchedule.map((item) => {
                 const revealed = isAdmin || isActivityRevealed(item.start_time);
+                const timeUntil = new Date(item.start_time).getTime() - Date.now();
+                const hoursUntil = Math.floor(timeUntil / (1000 * 60 * 60));
+                const minsUntil = Math.floor((timeUntil % (1000 * 60 * 60)) / (1000 * 60));
+
                 return (
                   <div
                     key={item.id}
                     className="flex items-center gap-4 p-3 bg-white/5 rounded-xl relative overflow-hidden"
                   >
                     {!revealed && (
-                      <div className="absolute inset-0 bg-slate-800/90 backdrop-blur-sm z-10 flex items-center justify-center">
+                      <div className="absolute inset-0 bg-slate-900/95 backdrop-blur-md z-10 flex items-center justify-center">
                         <div className="text-center">
-                          <p className="text-sm font-medium text-fuchsia-400">Surprise Activity</p>
-                          <p className="text-xs text-white/40">Reveals 1h before start</p>
+                          <div className="w-12 h-12 rounded-full bg-fuchsia-500/20 flex items-center justify-center mx-auto mb-2">
+                            <EyeOff className="w-6 h-6 text-fuchsia-400" />
+                          </div>
+                          <p className="text-sm font-medium text-fuchsia-400">Surprise Activity!</p>
+                          <p className="text-xs text-white/50 mt-1">
+                            Reveals in {hoursUntil}h {minsUntil}m
+                          </p>
+                          <p className="text-[10px] text-white/30 mt-1">1 hour before start time</p>
                         </div>
                       </div>
                     )}
@@ -563,9 +574,9 @@ function OverviewTab({
                         })}
                       </p>
                     </div>
-                    <div>
-                      <p className="font-medium">{revealed ? item.title : '???'}</p>
-                      {revealed && item.location && (
+                    <div className={!revealed ? 'invisible' : ''}>
+                      <p className="font-medium">{item.title}</p>
+                      {item.location && (
                         <p className="text-sm text-white/50 flex items-center gap-1">
                           <MapPin className="w-3 h-3" />
                           {item.location}

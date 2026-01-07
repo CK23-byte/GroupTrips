@@ -1,6 +1,6 @@
 import { useCallback, useState, useRef, useEffect } from 'react';
 import { GoogleMap, useJsApiLoader, Marker, InfoWindow, Polyline } from '@react-google-maps/api';
-import { MapPin, User, Plane, Camera } from 'lucide-react';
+import { MapPin, User, Plane, Camera, AlertTriangle } from 'lucide-react';
 
 interface MemberLocation {
   user_id: string;
@@ -185,6 +185,8 @@ export default function GoogleMapComponent({
   onMarkerClick,
 }: GoogleMapComponentProps) {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+  const [apiError, setApiError] = useState<string | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   const { isLoaded, loadError } = useJsApiLoader({
     id: 'google-map-script',
@@ -196,6 +198,20 @@ export default function GoogleMapComponent({
   const [selectedActivity, setSelectedActivity] = useState<ActivityLocation | null>(null);
   const mapRef = useRef<google.maps.Map | null>(null);
 
+  // Listen for Google Maps API errors
+  useEffect(() => {
+    const handleError = (event: ErrorEvent) => {
+      if (event.message?.includes('ApiNotActivatedMapError') ||
+          event.message?.includes('Google Maps JavaScript API')) {
+        setApiError('Maps JavaScript API not activated. Please enable it in Google Cloud Console.');
+        event.preventDefault();
+      }
+    };
+
+    window.addEventListener('error', handleError);
+    return () => window.removeEventListener('error', handleError);
+  }, []);
+
   // Calculate center from locations if not provided
   const mapCenter = center || (memberLocations.length > 0
     ? { lat: memberLocations[0].latitude, lng: memberLocations[0].longitude }
@@ -206,23 +222,28 @@ export default function GoogleMapComponent({
   const onLoad = useCallback((map: google.maps.Map) => {
     mapRef.current = map;
     setMap(map);
+    setMapReady(true);
 
     // Fit bounds to show all markers
     if (memberLocations.length > 0 || activityLocations.length > 0) {
-      const bounds = new window.google.maps.LatLngBounds();
+      try {
+        const bounds = new window.google.maps.LatLngBounds();
 
-      memberLocations.forEach(loc => {
-        bounds.extend({ lat: loc.latitude, lng: loc.longitude });
-      });
-
-      activityLocations.forEach(loc => {
-        if (loc.isRevealed !== false) {
+        memberLocations.forEach(loc => {
           bounds.extend({ lat: loc.latitude, lng: loc.longitude });
-        }
-      });
+        });
 
-      if (!bounds.isEmpty()) {
-        map.fitBounds(bounds, 50);
+        activityLocations.forEach(loc => {
+          if (loc.isRevealed !== false) {
+            bounds.extend({ lat: loc.latitude, lng: loc.longitude });
+          }
+        });
+
+        if (!bounds.isEmpty()) {
+          map.fitBounds(bounds, 50);
+        }
+      } catch (err) {
+        console.error('Error fitting bounds:', err);
       }
     }
   }, [memberLocations, activityLocations]);
@@ -230,34 +251,65 @@ export default function GoogleMapComponent({
   const onUnmount = useCallback(() => {
     mapRef.current = null;
     setMap(null);
+    setMapReady(false);
   }, []);
 
   // Update bounds when locations change
   useEffect(() => {
-    if (map && (memberLocations.length > 0 || activityLocations.length > 0)) {
-      const bounds = new window.google.maps.LatLngBounds();
+    if (map && mapReady && (memberLocations.length > 0 || activityLocations.length > 0)) {
+      try {
+        const bounds = new window.google.maps.LatLngBounds();
 
-      memberLocations.forEach(loc => {
-        bounds.extend({ lat: loc.latitude, lng: loc.longitude });
-      });
+        memberLocations.forEach(loc => {
+          bounds.extend({ lat: loc.latitude, lng: loc.longitude });
+        });
 
-      activityLocations.filter(loc => loc.isRevealed !== false || isAdmin).forEach(loc => {
-        bounds.extend({ lat: loc.latitude, lng: loc.longitude });
-      });
+        activityLocations.filter(loc => loc.isRevealed !== false || isAdmin).forEach(loc => {
+          bounds.extend({ lat: loc.latitude, lng: loc.longitude });
+        });
 
-      if (!bounds.isEmpty()) {
-        map.fitBounds(bounds, 50);
+        if (!bounds.isEmpty()) {
+          map.fitBounds(bounds, 50);
+        }
+      } catch (err) {
+        console.error('Error updating bounds:', err);
       }
     }
-  }, [map, memberLocations, activityLocations, isAdmin]);
+  }, [map, mapReady, memberLocations, activityLocations, isAdmin]);
 
-  // Route path for activities
-  const routePath = showRoute
+  // Route path for activities - only calculate when map is ready
+  const routePath = showRoute && mapReady
     ? activityLocations
         .filter(loc => loc.isRevealed !== false || isAdmin)
         .sort((a, b) => new Date(a.start_time || 0).getTime() - new Date(b.start_time || 0).getTime())
         .map(loc => ({ lat: loc.latitude, lng: loc.longitude }))
     : [];
+
+  // Show API activation error
+  if (apiError) {
+    return (
+      <div
+        className="flex items-center justify-center bg-slate-800 rounded-xl border border-yellow-500/30"
+        style={{ height }}
+      >
+        <div className="text-center p-8 max-w-md">
+          <AlertTriangle className="w-12 h-12 text-yellow-400 mx-auto mb-4" />
+          <p className="text-yellow-200 font-medium mb-2">Maps API Not Activated</p>
+          <p className="text-sm text-white/60 mb-4">
+            The Google Maps JavaScript API needs to be enabled in your Google Cloud Console.
+          </p>
+          <a
+            href="https://console.cloud.google.com/apis/library/maps-backend.googleapis.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm text-blue-400 hover:text-blue-300 underline"
+          >
+            Enable Maps JavaScript API →
+          </a>
+        </div>
+      </div>
+    );
+  }
 
   if (loadError) {
     return (
@@ -268,7 +320,9 @@ export default function GoogleMapComponent({
         <div className="text-center p-8">
           <MapPin className="w-12 h-12 text-red-400 mx-auto mb-4" />
           <p className="text-red-200">Failed to load Google Maps</p>
-          <p className="text-sm text-white/50 mt-2">Please check your API key</p>
+          <p className="text-sm text-white/50 mt-2">
+            {loadError.message || 'Please check your API key and try again'}
+          </p>
         </div>
       </div>
     );
@@ -322,8 +376,8 @@ export default function GoogleMapComponent({
           fullscreenControl: true,
         }}
       >
-        {/* Route polyline */}
-        {showRoute && routePath.length > 1 && (
+        {/* Route polyline - only render when map is fully ready and we have valid path */}
+        {showRoute && mapReady && routePath.length > 1 && (
           <Polyline
             path={routePath}
             options={{
@@ -336,7 +390,7 @@ export default function GoogleMapComponent({
         )}
 
         {/* Member location markers */}
-        {memberLocations.map((member) => (
+        {mapReady && memberLocations.map((member) => (
           <Marker
             key={member.user_id}
             position={{ lat: member.latitude, lng: member.longitude }}
@@ -346,7 +400,7 @@ export default function GoogleMapComponent({
               onMarkerClick?.(member);
             }}
             icon={{
-              path: google.maps.SymbolPath.CIRCLE,
+              path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
               scale: 12,
               fillColor: '#3b82f6',
               fillOpacity: 1,
@@ -357,7 +411,7 @@ export default function GoogleMapComponent({
         ))}
 
         {/* Activity location markers */}
-        {activityLocations.map((activity) => {
+        {mapReady && activityLocations.map((activity) => {
           // Don't show unrevealed activities for non-admins
           if (activity.isRevealed === false && !isAdmin) {
             return null;
@@ -373,7 +427,7 @@ export default function GoogleMapComponent({
                 onMarkerClick?.(activity);
               }}
               icon={{
-                path: google.maps.SymbolPath.BACKWARD_CLOSED_ARROW,
+                path: window.google?.maps?.SymbolPath?.BACKWARD_CLOSED_ARROW || 4,
                 scale: 8,
                 fillColor: activityColors[activity.type] || '#ffffff',
                 fillOpacity: activity.isRevealed === false ? 0.5 : 1,
@@ -385,7 +439,7 @@ export default function GoogleMapComponent({
         })}
 
         {/* Member info window */}
-        {selectedMember && (
+        {selectedMember && mapReady && (
           <InfoWindow
             position={{ lat: selectedMember.latitude, lng: selectedMember.longitude }}
             onCloseClick={() => setSelectedMember(null)}
@@ -409,7 +463,7 @@ export default function GoogleMapComponent({
         )}
 
         {/* Activity info window */}
-        {selectedActivity && (
+        {selectedActivity && mapReady && (
           <InfoWindow
             position={{ lat: selectedActivity.latitude, lng: selectedActivity.longitude }}
             onCloseClick={() => setSelectedActivity(null)}
