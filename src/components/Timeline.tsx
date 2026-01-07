@@ -18,6 +18,12 @@ import {
   X,
   Calendar,
   Info,
+  Phone,
+  Euro,
+  Copy,
+  Check,
+  Navigation,
+  Save,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { ScheduleItem, Trip } from '../types';
@@ -36,6 +42,12 @@ function isActivityRevealed(startTime: string): boolean {
   const now = Date.now();
   const oneHourBefore = activityTime - (60 * 60 * 1000);
   return now >= oneHourBefore;
+}
+
+// Check if activity is in the past
+function isActivityPast(endTime: string | undefined, startTime: string): boolean {
+  const checkTime = endTime ? new Date(endTime).getTime() : new Date(startTime).getTime();
+  return Date.now() > checkTime;
 }
 
 // Get time until reveal
@@ -245,6 +257,7 @@ function TimelineItem({
   const endTime = item.end_time ? new Date(item.end_time) : null;
   const [revealed, setRevealed] = useState(isActivityRevealed(item.start_time));
   const [timeUntilReveal, setTimeUntilReveal] = useState(getTimeUntilReveal(item.start_time));
+  const isPast = isActivityPast(item.end_time, item.start_time);
 
   // Update reveal status every minute
   useEffect(() => {
@@ -268,14 +281,14 @@ function TimelineItem({
 
   return (
     <div
-      className={`relative card p-4 ml-4 cursor-pointer hover:bg-white/10 transition-colors ${!showContent ? 'overflow-hidden' : ''}`}
+      className={`relative card p-4 ml-4 cursor-pointer hover:bg-white/10 transition-colors ${!showContent ? 'overflow-hidden' : ''} ${isPast ? 'opacity-50' : ''}`}
       onClick={() => showContent && onSelect()}
     >
       {/* Timeline dot */}
       <div
         className={`absolute -left-[26px] top-4 w-4 h-4 rounded-full bg-gradient-to-br ${
           typeColors[item.type] || 'from-gray-500 to-gray-600'
-        }`}
+        } ${isPast ? 'opacity-50' : ''}`}
       />
 
       {/* Blur overlay for hidden activities */}
@@ -324,10 +337,16 @@ function TimelineItem({
                   minute: '2-digit',
                 })}`}
             </span>
-            {showContent && revealed && !isAdmin && (
+            {showContent && revealed && !isAdmin && !isPast && (
               <span className="flex items-center gap-1 text-xs text-green-400 bg-green-500/20 px-2 py-0.5 rounded-full">
                 <Eye className="w-3 h-3" />
                 Revealed
+              </span>
+            )}
+            {isPast && (
+              <span className="flex items-center gap-1 text-xs text-white/40 bg-white/10 px-2 py-0.5 rounded-full">
+                <Check className="w-3 h-3" />
+                Completed
               </span>
             )}
           </div>
@@ -341,9 +360,36 @@ function TimelineItem({
           {item.location && (
             <div className="flex items-center gap-1 text-sm text-white/40">
               <MapPin className="w-3 h-3" />
-              <span>{item.location}</span>
+              {item.location_url ? (
+                <a
+                  href={item.location_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 transition-colors"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {item.location}
+                </a>
+              ) : (
+                <span>{item.location}</span>
+              )}
             </div>
           )}
+
+          <div className="flex flex-wrap gap-2 mt-1">
+            {item.estimated_cost && (
+              <span className="inline-flex items-center gap-1 text-xs text-green-400 bg-green-500/20 px-2 py-0.5 rounded-full">
+                <Euro className="w-3 h-3" />
+                {item.estimated_cost}
+              </span>
+            )}
+            {item.reservation_code && (
+              <span className="inline-flex items-center gap-1 text-xs text-fuchsia-400 bg-fuchsia-500/20 px-2 py-0.5 rounded-full">
+                <Copy className="w-3 h-3" />
+                {item.reservation_code}
+              </span>
+            )}
+          </div>
 
           {item.booking_url && (
             <a
@@ -351,6 +397,7 @@ function TimelineItem({
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-1.5 text-sm text-blue-400 hover:text-blue-300 transition-colors mt-1"
+              onClick={(e) => e.stopPropagation()}
             >
               <ExternalLink className="w-3 h-3" />
               <span>View booking</span>
@@ -388,11 +435,16 @@ function AddScheduleModal({
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [location, setLocation] = useState('');
+  const [locationUrl, setLocationUrl] = useState('');
   const [bookingUrl, setBookingUrl] = useState('');
+  const [reservationCode, setReservationCode] = useState('');
+  const [contactInfo, setContactInfo] = useState('');
+  const [estimatedCost, setEstimatedCost] = useState('');
   const [type, setType] = useState<ScheduleItem['type']>('activity');
   const [startTime, setStartTime] = useState('');
   const [endTime, setEndTime] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -403,7 +455,11 @@ function AddScheduleModal({
       title,
       description: description || null,
       location: location || null,
+      location_url: locationUrl || null,
       booking_url: bookingUrl || null,
+      reservation_code: reservationCode || null,
+      contact_info: contactInfo || null,
+      estimated_cost: estimatedCost ? parseFloat(estimatedCost) : null,
       type,
       start_time: new Date(startTime).toISOString(),
       end_time: endTime ? new Date(endTime).toISOString() : null,
@@ -449,6 +505,32 @@ function AddScheduleModal({
             </select>
           </div>
 
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">
+                Start Time
+              </label>
+              <input
+                type="datetime-local"
+                value={startTime}
+                onChange={(e) => setStartTime(e.target.value)}
+                className="input-field"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">
+                End Time (optional)
+              </label>
+              <input
+                type="datetime-local"
+                value={endTime}
+                onChange={(e) => setEndTime(e.target.value)}
+                className="input-field"
+              />
+            </div>
+          </div>
+
           <div>
             <label className="block text-sm font-medium text-white/70 mb-2">
               Description (optional)
@@ -476,42 +558,83 @@ function AddScheduleModal({
 
           <div>
             <label className="block text-sm font-medium text-white/70 mb-2">
-              Booking URL (optional)
+              Estimated Cost € (optional)
             </label>
             <input
-              type="url"
-              value={bookingUrl}
-              onChange={(e) => setBookingUrl(e.target.value)}
+              type="number"
+              value={estimatedCost}
+              onChange={(e) => setEstimatedCost(e.target.value)}
               className="input-field"
-              placeholder="https://booking-website.com/..."
+              placeholder="e.g., 25"
+              min="0"
+              step="0.01"
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Start Time
-              </label>
-              <input
-                type="datetime-local"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="input-field"
-                required
-              />
+          {/* Advanced options toggle */}
+          <button
+            type="button"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="text-sm text-blue-400 hover:text-blue-300 transition-colors flex items-center gap-1"
+          >
+            {showAdvanced ? '- Hide' : '+ Show'} advanced options
+          </button>
+
+          {showAdvanced && (
+            <div className="space-y-4 p-4 bg-white/5 rounded-xl border border-white/10">
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-2">
+                  Location URL (Google Maps)
+                </label>
+                <input
+                  type="url"
+                  value={locationUrl}
+                  onChange={(e) => setLocationUrl(e.target.value)}
+                  className="input-field"
+                  placeholder="https://goo.gl/maps/..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-2">
+                  Booking URL
+                </label>
+                <input
+                  type="url"
+                  value={bookingUrl}
+                  onChange={(e) => setBookingUrl(e.target.value)}
+                  className="input-field"
+                  placeholder="https://booking-website.com/..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-2">
+                  Reservation Code
+                </label>
+                <input
+                  type="text"
+                  value={reservationCode}
+                  onChange={(e) => setReservationCode(e.target.value)}
+                  className="input-field"
+                  placeholder="e.g., ABC123"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-2">
+                  Contact Info
+                </label>
+                <input
+                  type="text"
+                  value={contactInfo}
+                  onChange={(e) => setContactInfo(e.target.value)}
+                  className="input-field"
+                  placeholder="e.g., +31 20 123 4567"
+                />
+              </div>
             </div>
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                End Time (optional)
-              </label>
-              <input
-                type="datetime-local"
-                value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                className="input-field"
-              />
-            </div>
-          </div>
+          )}
 
           <div className="flex gap-3 pt-4">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">
@@ -538,19 +661,243 @@ interface AIActivity {
   duration_hours: number;
   estimated_cost: number;
   best_time: string;
+  booking_url?: string;
+  location?: string;
 }
 
-// Activity Detail Modal
+// Activity Detail Modal with Edit functionality
 function ActivityDetailModal({
   activity,
+  isAdmin,
   onClose,
 }: {
   activity: ScheduleItem;
   isAdmin?: boolean;
   onClose: () => void;
 }) {
-  const startTime = new Date(activity.start_time);
-  const endTime = activity.end_time ? new Date(activity.end_time) : null;
+  const [isEditing, setIsEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  // Edit form state
+  const [title, setTitle] = useState(activity.title);
+  const [description, setDescription] = useState(activity.description || '');
+  const [location, setLocation] = useState(activity.location || '');
+  const [locationUrl, setLocationUrl] = useState(activity.location_url || '');
+  const [bookingUrl, setBookingUrl] = useState(activity.booking_url || '');
+  const [reservationCode, setReservationCode] = useState(activity.reservation_code || '');
+  const [contactInfo, setContactInfo] = useState(activity.contact_info || '');
+  const [estimatedCost, setEstimatedCost] = useState(activity.estimated_cost?.toString() || '');
+  const [type, setType] = useState<ScheduleItem['type']>(activity.type);
+  const [startTime, setStartTime] = useState(
+    new Date(activity.start_time).toISOString().slice(0, 16)
+  );
+  const [endTime, setEndTime] = useState(
+    activity.end_time ? new Date(activity.end_time).toISOString().slice(0, 16) : ''
+  );
+
+  const displayStartTime = new Date(activity.start_time);
+  const displayEndTime = activity.end_time ? new Date(activity.end_time) : null;
+
+  async function handleSave() {
+    setSaving(true);
+
+    const { error } = await supabase.from('schedule_items').update({
+      title,
+      description: description || null,
+      location: location || null,
+      location_url: locationUrl || null,
+      booking_url: bookingUrl || null,
+      reservation_code: reservationCode || null,
+      contact_info: contactInfo || null,
+      estimated_cost: estimatedCost ? parseFloat(estimatedCost) : null,
+      type,
+      start_time: new Date(startTime).toISOString(),
+      end_time: endTime ? new Date(endTime).toISOString() : null,
+    }).eq('id', activity.id);
+
+    setSaving(false);
+
+    if (error) {
+      alert('Failed to save: ' + error.message);
+      return;
+    }
+
+    window.location.reload();
+  }
+
+  function copyToClipboard(text: string) {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  // Generate Google Maps URL from location
+  function getGoogleMapsUrl(loc: string): string {
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(loc)}`;
+  }
+
+  if (isEditing && isAdmin) {
+    return (
+      <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+        <div className="bg-slate-800 border border-white/10 rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="flex items-center justify-between mb-6">
+            <h2 className="text-xl font-bold">Edit Activity</h2>
+            <button onClick={() => setIsEditing(false)} className="p-2 hover:bg-white/10 rounded-full">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Title</label>
+              <input
+                type="text"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                className="input-field"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Type</label>
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value as ScheduleItem['type'])}
+                className="input-field bg-slate-700 text-white"
+              >
+                <option value="travel" className="bg-slate-700">Travel</option>
+                <option value="activity" className="bg-slate-700">Activity</option>
+                <option value="meal" className="bg-slate-700">Meal</option>
+                <option value="accommodation" className="bg-slate-700">Accommodation</option>
+                <option value="free_time" className="bg-slate-700">Free Time</option>
+                <option value="meeting" className="bg-slate-700">Meeting Point</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Description</label>
+              <textarea
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+                className="input-field resize-none"
+                rows={2}
+              />
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-2">Start Time</label>
+                <input
+                  type="datetime-local"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="input-field"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-white/70 mb-2">End Time</label>
+                <input
+                  type="datetime-local"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
+                  className="input-field"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Location</label>
+              <input
+                type="text"
+                value={location}
+                onChange={(e) => setLocation(e.target.value)}
+                className="input-field"
+                placeholder="e.g., Amsterdam Central"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Location URL (Google Maps)</label>
+              <input
+                type="url"
+                value={locationUrl}
+                onChange={(e) => setLocationUrl(e.target.value)}
+                className="input-field"
+                placeholder="https://goo.gl/maps/..."
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Booking URL</label>
+              <input
+                type="url"
+                value={bookingUrl}
+                onChange={(e) => setBookingUrl(e.target.value)}
+                className="input-field"
+                placeholder="https://..."
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Reservation Code</label>
+              <input
+                type="text"
+                value={reservationCode}
+                onChange={(e) => setReservationCode(e.target.value)}
+                className="input-field"
+                placeholder="e.g., ABC123"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Contact Info</label>
+              <input
+                type="text"
+                value={contactInfo}
+                onChange={(e) => setContactInfo(e.target.value)}
+                className="input-field"
+                placeholder="e.g., +31 20 123 4567"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">Estimated Cost (€)</label>
+              <input
+                type="number"
+                value={estimatedCost}
+                onChange={(e) => setEstimatedCost(e.target.value)}
+                className="input-field"
+                placeholder="e.g., 25"
+                min="0"
+                step="0.01"
+              />
+            </div>
+          </div>
+
+          <div className="flex gap-3 mt-6">
+            <button onClick={() => setIsEditing(false)} className="btn-secondary flex-1">
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="btn-primary flex-1 flex items-center justify-center gap-2"
+            >
+              {saving ? (
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Save className="w-4 h-4" />
+              )}
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
@@ -565,9 +912,20 @@ function ActivityDetailModal({
               <p className="text-sm text-white/50 capitalize">{activity.type.replace('_', ' ')}</p>
             </div>
           </div>
-          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full">
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-2">
+            {isAdmin && (
+              <button
+                onClick={() => setIsEditing(true)}
+                className="p-2 hover:bg-white/10 rounded-full text-blue-400"
+                title="Edit activity"
+              >
+                <Edit2 className="w-5 h-5" />
+              </button>
+            )}
+            <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         <div className="space-y-4">
@@ -577,15 +935,15 @@ function ActivityDetailModal({
             <div>
               <p className="text-sm text-white/50">Date & Time</p>
               <p className="font-medium">
-                {startTime.toLocaleDateString('en-US', {
+                {displayStartTime.toLocaleDateString('en-US', {
                   weekday: 'long',
                   month: 'long',
                   day: 'numeric',
                 })}
               </p>
               <p className="text-sm">
-                {startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
-                {endTime && ` - ${endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`}
+                {displayStartTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                {displayEndTime && ` - ${displayEndTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`}
               </p>
             </div>
           </div>
@@ -594,10 +952,70 @@ function ActivityDetailModal({
           {activity.location && (
             <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
               <MapPin className="w-5 h-5 text-green-400" />
-              <div>
+              <div className="flex-1">
                 <p className="text-sm text-white/50">Location</p>
                 <p className="font-medium">{activity.location}</p>
               </div>
+              <a
+                href={activity.location_url || getGoogleMapsUrl(activity.location)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 bg-green-500/20 hover:bg-green-500/30 rounded-lg transition-colors"
+                title="Open in Maps"
+              >
+                <Navigation className="w-4 h-4 text-green-400" />
+              </a>
+            </div>
+          )}
+
+          {/* Estimated Cost */}
+          {activity.estimated_cost && (
+            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
+              <Euro className="w-5 h-5 text-yellow-400" />
+              <div>
+                <p className="text-sm text-white/50">Estimated Cost</p>
+                <p className="font-medium">€{activity.estimated_cost.toFixed(2)}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Reservation Code */}
+          {activity.reservation_code && (
+            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
+              <Copy className="w-5 h-5 text-fuchsia-400" />
+              <div className="flex-1">
+                <p className="text-sm text-white/50">Reservation Code</p>
+                <p className="font-medium font-mono">{activity.reservation_code}</p>
+              </div>
+              <button
+                onClick={() => copyToClipboard(activity.reservation_code!)}
+                className="p-2 bg-fuchsia-500/20 hover:bg-fuchsia-500/30 rounded-lg transition-colors"
+                title="Copy to clipboard"
+              >
+                {copied ? (
+                  <Check className="w-4 h-4 text-green-400" />
+                ) : (
+                  <Copy className="w-4 h-4 text-fuchsia-400" />
+                )}
+              </button>
+            </div>
+          )}
+
+          {/* Contact Info */}
+          {activity.contact_info && (
+            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
+              <Phone className="w-5 h-5 text-blue-400" />
+              <div className="flex-1">
+                <p className="text-sm text-white/50">Contact</p>
+                <p className="font-medium">{activity.contact_info}</p>
+              </div>
+              <a
+                href={`tel:${activity.contact_info.replace(/\s/g, '')}`}
+                className="p-2 bg-blue-500/20 hover:bg-blue-500/30 rounded-lg transition-colors"
+                title="Call"
+              >
+                <Phone className="w-4 h-4 text-blue-400" />
+              </a>
             </div>
           )}
 
@@ -708,8 +1126,11 @@ function AISuggestionsModal({
     await supabase.from('schedule_items').insert({
       trip_id: tripId,
       title: activity.title,
-      description: `${activity.description}\n\nEstimated cost: €${activity.estimated_cost} per person`,
+      description: activity.description,
       type: activity.type,
+      location: activity.location || location,
+      booking_url: activity.booking_url || null,
+      estimated_cost: activity.estimated_cost,
       start_time: activityDate.toISOString(),
       end_time: endTime.toISOString(),
     });

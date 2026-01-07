@@ -70,10 +70,15 @@ export interface ScheduleItem {
   title: string;
   description?: string;
   location?: string;
+  location_url?: string; // Google Maps link
   start_time: string;
   end_time?: string;
   type: 'travel' | 'activity' | 'meal' | 'accommodation' | 'free_time' | 'meeting';
   booking_url?: string;
+  reservation_code?: string;
+  contact_info?: string;
+  estimated_cost?: number;
+  is_transport?: boolean; // For flights, trains, buses
   created_at: string;
 }
 

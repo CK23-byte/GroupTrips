@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Plane, Users, Map, Camera, Clock, Shield, MessageCircle, Sparkles } from 'lucide-react';
+import { Plane, Users, Map, Camera, Clock, Shield, Sparkles } from 'lucide-react';
 
 export default function LandingPage() {
   return (
@@ -23,35 +23,50 @@ export default function LandingPage() {
         </nav>
 
         <div className="relative z-10 max-w-7xl mx-auto px-6 py-24 text-center">
-          {/* Trend meme reference */}
-          <div className="mb-6 inline-flex items-center gap-2 px-4 py-2 bg-white/10 rounded-full text-sm">
-            <Sparkles className="w-4 h-4 text-yellow-400" />
-            <span className="text-white/70">When the trip actually makes it out the groupchat</span>
+          {/* Trend meme reference - big and eye-catching */}
+          <div className="mb-8 inline-flex items-center gap-3 px-6 py-3 bg-gradient-to-r from-fuchsia-500/30 to-blue-500/30 rounded-2xl border border-white/20 backdrop-blur-sm animate-pulse">
+            <Sparkles className="w-6 h-6 text-yellow-400" />
+            <span className="text-xl md:text-2xl font-bold bg-gradient-to-r from-yellow-200 via-pink-200 to-blue-200 bg-clip-text text-transparent" style={{ fontFamily: "'Inter', 'SF Pro Display', -apple-system, sans-serif" }}>
+              When the trip actually makes it out the groupchat
+            </span>
+            <Sparkles className="w-6 h-6 text-yellow-400" />
           </div>
 
-          <h1 className="text-5xl md:text-7xl font-bold mb-6 bg-gradient-to-r from-blue-400 to-fuchsia-400 bg-clip-text text-transparent">
-            Surprise Trips
+          <h1 className="text-5xl md:text-7xl font-extrabold mb-6 bg-gradient-to-r from-blue-400 via-fuchsia-400 to-purple-400 bg-clip-text text-transparent leading-tight">
+            Your Entire Trip
             <br />
-            Made Real
+            In One Place
           </h1>
-          <p className="text-xl text-white/70 max-w-2xl mx-auto mb-8">
-            Finally get your group out of the chat and into the world. Plan surprise trips,
-            keep destinations secret, and create unforgettable memories together.
+          <p className="text-xl md:text-2xl text-white/80 max-w-3xl mx-auto mb-8 leading-relaxed">
+            Tickets, live schedule, group chat, shared memories, aftermovie & live locations.
+            <span className="block mt-2 text-white/60">Everything your group needs for the perfect trip.</span>
           </p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <Link to="/register" className="btn-primary text-lg px-8">
-              Start a Trip
+            <Link to="/register" className="btn-primary text-lg px-8 py-4">
+              Start Planning
             </Link>
-            <Link to="/join" className="btn-secondary text-lg px-8">
+            <Link to="/join" className="btn-secondary text-lg px-8 py-4">
               Join with Code
             </Link>
           </div>
 
-          {/* Social proof */}
-          <div className="mt-12 flex items-center justify-center gap-8 text-white/50 text-sm">
-            <div className="flex items-center gap-2">
-              <MessageCircle className="w-4 h-4" />
-              <span>No more "let's plan something" that never happens</span>
+          {/* Feature highlights */}
+          <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-3xl mx-auto text-sm">
+            <div className="flex items-center justify-center gap-2 px-3 py-2 bg-white/5 rounded-xl">
+              <span className="text-blue-400">✈️</span>
+              <span className="text-white/70">Tickets</span>
+            </div>
+            <div className="flex items-center justify-center gap-2 px-3 py-2 bg-white/5 rounded-xl">
+              <span className="text-green-400">📍</span>
+              <span className="text-white/70">Live Locations</span>
+            </div>
+            <div className="flex items-center justify-center gap-2 px-3 py-2 bg-white/5 rounded-xl">
+              <span className="text-fuchsia-400">📸</span>
+              <span className="text-white/70">Shared Photos</span>
+            </div>
+            <div className="flex items-center justify-center gap-2 px-3 py-2 bg-white/5 rounded-xl">
+              <span className="text-yellow-400">🎬</span>
+              <span className="text-white/70">Aftermovie</span>
             </div>
           </div>
         </div>
@@ -60,40 +75,43 @@ export default function LandingPage() {
       {/* Features Section */}
       <section className="py-24 px-6">
         <div className="max-w-7xl mx-auto">
-          <h2 className="text-3xl font-bold text-center mb-16">
+          <h2 className="text-3xl md:text-4xl font-bold text-center mb-4">
             Everything you need for the perfect group trip
           </h2>
+          <p className="text-center text-white/60 mb-16 max-w-2xl mx-auto">
+            No more scattered messages, lost tickets, or missed meetups. One app for your entire adventure.
+          </p>
 
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             <FeatureCard
-              icon={<Clock className="w-8 h-8" />}
-              title="Timed Reveal"
-              description="QR codes 3 hours before, full tickets 1 hour before departure. Maximum suspense!"
+              icon={<Plane className="w-8 h-8" />}
+              title="Smart Ticket Management"
+              description="Upload tickets and our AI extracts flight details, dates, and seat info automatically."
             />
             <FeatureCard
-              icon={<Users className="w-8 h-8" />}
-              title="Group Communication"
-              description="Real-time updates, reminders, and messages to your entire group."
+              icon={<Clock className="w-8 h-8" />}
+              title="Live Schedule"
+              description="Full trip itinerary with activities, times, locations, and reservation codes."
             />
             <FeatureCard
               icon={<Map className="w-8 h-8" />}
               title="Live Locations"
-              description="See where everyone is on an interactive map. Nobody gets lost."
+              description="See where everyone is on an interactive map. Like WhatsApp location sharing, but better."
+            />
+            <FeatureCard
+              icon={<Users className="w-8 h-8" />}
+              title="Group Chat & Updates"
+              description="Real-time messaging, announcements, and reminders to your entire group."
             />
             <FeatureCard
               icon={<Camera className="w-8 h-8" />}
-              title="Shared Media"
-              description="Upload photos and videos. Everyone contributes to the memories."
-            />
-            <FeatureCard
-              icon={<Plane className="w-8 h-8" />}
-              title="AI Ticket Scanning"
-              description="Upload tickets and our AI extracts all details automatically."
+              title="Shared Memories"
+              description="Upload photos and videos. Create an auto-generated aftermovie after the trip."
             />
             <FeatureCard
               icon={<Shield className="w-8 h-8" />}
-              title="Secure Documents"
-              description="Store passports, insurance, and other documents in one safe place."
+              title="Surprise Mode (Optional)"
+              description="Keep destination secret until the reveal! QR codes appear 3h before departure."
             />
           </div>
         </div>
@@ -117,8 +135,8 @@ export default function LandingPage() {
             />
             <StepCard
               number={3}
-              title="Upload Tickets"
-              description="Admin uploads flight or train tickets. Destination stays secret!"
+              title="Upload Tickets & Activities"
+              description="Add flight tickets, plan activities, and build your full schedule."
             />
             <StepCard
               number={4}
