@@ -101,24 +101,20 @@ select.input-field option:checked {
   color: white;
 }
 
-/* Ticket reveal animation */
+/* Ticket reveal animation - simple fade in */
 @keyframes ticket-reveal {
   0% {
     opacity: 0;
-    transform: scale(0.8) rotateY(180deg);
-  }
-  50% {
-    opacity: 0.5;
-    transform: scale(1.1) rotateY(90deg);
+    transform: scale(0.95);
   }
   100% {
     opacity: 1;
-    transform: scale(1) rotateY(0deg);
+    transform: scale(1);
   }
 }
 
 .ticket-reveal {
-  animation: ticket-reveal 1s ease-out forwards;
+  animation: ticket-reveal 0.4s ease-out forwards;
 }
 
 /* QR Code glow effect */

@@ -56,7 +56,8 @@ export default function MembersList({
           {members.length} Participants
         </h2>
         <div className="flex gap-2">
-          {isAdmin && lobbyCode && (
+          {/* All members can invite others */}
+          {lobbyCode && (
             <button
               onClick={() => setShowInvite(!showInvite)}
               className="btn-primary text-sm flex items-center gap-2"
