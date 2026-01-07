@@ -15,14 +15,19 @@ import {
   EyeOff,
   Sparkles,
   ExternalLink,
+  X,
+  Calendar,
+  Info,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
-import type { ScheduleItem } from '../types';
+import type { ScheduleItem, Trip } from '../types';
 
 interface TimelineProps {
   schedule: ScheduleItem[];
   isAdmin: boolean;
   tripId: string;
+  trip?: Trip | null;
+  memberCount?: number;
 }
 
 // Check if activity should be revealed (1 hour before start time)
@@ -65,8 +70,9 @@ const typeColors: Record<string, string> = {
   meeting: 'from-yellow-500 to-yellow-600',
 };
 
-export default function Timeline({ schedule, isAdmin, tripId }: TimelineProps) {
+export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount }: TimelineProps) {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [selectedActivity, setSelectedActivity] = useState<ScheduleItem | null>(null);
 
   // Group schedule items by date
   const groupedSchedule = schedule.reduce((acc, item) => {
@@ -112,6 +118,8 @@ export default function Timeline({ schedule, isAdmin, tripId }: TimelineProps) {
         {showSuggestionsModal && (
           <AISuggestionsModal
             tripId={tripId}
+            trip={trip}
+            memberCount={memberCount}
             onClose={() => setShowSuggestionsModal(false)}
             onAdded={() => {
               setShowSuggestionsModal(false);
@@ -178,6 +186,7 @@ export default function Timeline({ schedule, isAdmin, tripId }: TimelineProps) {
                     isAdmin={isAdmin}
                     isFirst={index === 0}
                     isLast={index === items.length - 1}
+                    onSelect={() => setSelectedActivity(item)}
                   />
                 ))}
               </div>
@@ -200,11 +209,21 @@ export default function Timeline({ schedule, isAdmin, tripId }: TimelineProps) {
       {showSuggestionsModal && (
         <AISuggestionsModal
           tripId={tripId}
+          trip={trip}
+          memberCount={memberCount}
           onClose={() => setShowSuggestionsModal(false)}
           onAdded={() => {
             setShowSuggestionsModal(false);
             window.location.reload();
           }}
+        />
+      )}
+
+      {selectedActivity && (
+        <ActivityDetailModal
+          activity={selectedActivity}
+          isAdmin={isAdmin}
+          onClose={() => setSelectedActivity(null)}
         />
       )}
     </div>
@@ -214,11 +233,13 @@ export default function Timeline({ schedule, isAdmin, tripId }: TimelineProps) {
 function TimelineItem({
   item,
   isAdmin,
+  onSelect,
 }: {
   item: ScheduleItem;
   isAdmin: boolean;
   isFirst?: boolean;
   isLast?: boolean;
+  onSelect: () => void;
 }) {
   const startTime = new Date(item.start_time);
   const endTime = item.end_time ? new Date(item.end_time) : null;
@@ -246,7 +267,10 @@ function TimelineItem({
   const showContent = isAdmin || revealed;
 
   return (
-    <div className={`relative card p-4 ml-4 ${!showContent ? 'overflow-hidden' : ''}`}>
+    <div
+      className={`relative card p-4 ml-4 cursor-pointer hover:bg-white/10 transition-colors ${!showContent ? 'overflow-hidden' : ''}`}
+      onClick={() => showContent && onSelect()}
+    >
       {/* Timeline dot */}
       <div
         className={`absolute -left-[26px] top-4 w-4 h-4 rounded-full bg-gradient-to-br ${
@@ -516,18 +540,120 @@ interface AIActivity {
   best_time: string;
 }
 
+// Activity Detail Modal
+function ActivityDetailModal({
+  activity,
+  onClose,
+}: {
+  activity: ScheduleItem;
+  isAdmin?: boolean;
+  onClose: () => void;
+}) {
+  const startTime = new Date(activity.start_time);
+  const endTime = activity.end_time ? new Date(activity.end_time) : null;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-slate-800 border border-white/10 rounded-2xl p-6 max-w-md w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <span className={`p-2 rounded-xl bg-gradient-to-br ${typeColors[activity.type] || 'from-gray-500 to-gray-600'}`}>
+              {typeIcons[activity.type] || <Clock className="w-5 h-5" />}
+            </span>
+            <div>
+              <h2 className="text-xl font-bold">{activity.title}</h2>
+              <p className="text-sm text-white/50 capitalize">{activity.type.replace('_', ' ')}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-2 hover:bg-white/10 rounded-full">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="space-y-4">
+          {/* Time */}
+          <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
+            <Calendar className="w-5 h-5 text-blue-400" />
+            <div>
+              <p className="text-sm text-white/50">Date & Time</p>
+              <p className="font-medium">
+                {startTime.toLocaleDateString('en-US', {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                })}
+              </p>
+              <p className="text-sm">
+                {startTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                {endTime && ` - ${endTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}`}
+              </p>
+            </div>
+          </div>
+
+          {/* Location */}
+          {activity.location && (
+            <div className="flex items-center gap-3 p-3 bg-white/5 rounded-xl">
+              <MapPin className="w-5 h-5 text-green-400" />
+              <div>
+                <p className="text-sm text-white/50">Location</p>
+                <p className="font-medium">{activity.location}</p>
+              </div>
+            </div>
+          )}
+
+          {/* Description */}
+          {activity.description && (
+            <div className="p-3 bg-white/5 rounded-xl">
+              <div className="flex items-center gap-2 mb-2">
+                <Info className="w-4 h-4 text-fuchsia-400" />
+                <p className="text-sm text-white/50">Description</p>
+              </div>
+              <p className="text-white/80 whitespace-pre-wrap">{activity.description}</p>
+            </div>
+          )}
+
+          {/* Booking URL */}
+          {activity.booking_url && (
+            <a
+              href={activity.booking_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center justify-center gap-2 w-full p-3 bg-blue-500/20 hover:bg-blue-500/30 border border-blue-500/50 rounded-xl text-blue-400 font-medium transition-colors"
+            >
+              <ExternalLink className="w-4 h-4" />
+              View Booking / More Info
+            </a>
+          )}
+        </div>
+
+        <button
+          onClick={onClose}
+          className="w-full mt-6 btn-secondary"
+        >
+          Close
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function AISuggestionsModal({
   tripId,
+  trip,
+  memberCount,
   onClose,
   onAdded,
 }: {
   tripId: string;
+  trip?: Trip | null;
+  memberCount?: number;
   onClose: () => void;
   onAdded: () => void;
 }) {
-  const [location, setLocation] = useState('');
-  const [groupSize, setGroupSize] = useState('');
-  const [date, setDate] = useState('');
+  // Pre-fill with trip data
+  const [location, setLocation] = useState(trip?.destination || '');
+  const [groupSize, setGroupSize] = useState(memberCount?.toString() || '');
+  const [date, setDate] = useState(trip?.departure_time ? new Date(trip.departure_time).toISOString().split('T')[0] : '');
   const [preferences, setPreferences] = useState('');
   const [loading, setLoading] = useState(false);
   const [suggestions, setSuggestions] = useState<AIActivity[]>([]);

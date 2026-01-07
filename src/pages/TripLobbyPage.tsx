@@ -319,10 +319,12 @@ export default function TripLobbyPage() {
             ticket={ticket}
             revealStatus={revealStatus}
             departureTime={trip.departure_time}
+            trip={trip}
+            userName={(user as unknown as { user_metadata?: { name?: string } })?.user_metadata?.name || user?.email?.split('@')[0]}
           />
         )}
         {activeTab === 'schedule' && (
-          <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} />
+          <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} trip={trip} memberCount={members.length} />
         )}
         {activeTab === 'members' && (
           <MembersList members={members} isAdmin={isAdmin} tripId={tripId!} lobbyCode={trip?.lobby_code} />

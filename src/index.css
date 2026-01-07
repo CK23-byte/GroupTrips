@@ -139,3 +139,87 @@ select.input-field {
 .countdown-digit {
   @apply bg-white/10 backdrop-blur rounded-lg p-3 min-w-[60px] text-center;
 }
+
+/* Mobile-specific styles */
+@media (max-width: 640px) {
+  /* Smaller padding on mobile */
+  .card {
+    @apply rounded-xl;
+  }
+
+  .btn-primary,
+  .btn-secondary,
+  .btn-accent {
+    @apply py-2.5 px-4 text-sm;
+  }
+
+  .input-field {
+    @apply py-2.5 text-sm;
+  }
+
+  /* Fix horizontal scrolling on tabs */
+  nav {
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Better touch targets */
+  button, a {
+    min-height: 44px;
+  }
+
+  /* Full-width modals on mobile */
+  .modal-content {
+    @apply mx-2 max-h-[90vh];
+  }
+}
+
+/* iOS safe area support */
+@supports (padding: env(safe-area-inset-bottom)) {
+  .safe-area-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .safe-area-top {
+    padding-top: env(safe-area-inset-top);
+  }
+}
+
+/* Prevent zoom on input focus on iOS */
+@media screen and (max-width: 640px) {
+  input[type="text"],
+  input[type="email"],
+  input[type="password"],
+  input[type="number"],
+  input[type="date"],
+  input[type="datetime-local"],
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Better tap highlight */
+* {
+  -webkit-tap-highlight-color: rgba(59, 130, 246, 0.3);
+}
+
+/* Smooth scrolling */
+html {
+  scroll-behavior: smooth;
+}
+
+/* Fix for iOS input styling */
+input,
+textarea,
+select {
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+  border-radius: 12px;
+}
