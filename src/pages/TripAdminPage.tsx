@@ -371,35 +371,59 @@ function TicketUploadModal({
     e.preventDefault();
     setLoading(true);
 
-    let fullTicketUrl = null;
+    try {
+      let fullTicketUrl = null;
 
-    if (fullTicketFile) {
-      fullTicketUrl = await uploadFile(
-        'tickets',
-        `${tripId}/${selectedMemberId}/ticket-${Date.now()}.${fullTicketFile.name.split('.').pop()}`,
-        fullTicketFile
-      );
+      if (fullTicketFile) {
+        console.log('[TicketUpload] Uploading file to storage...');
+        fullTicketUrl = await uploadFile(
+          'tickets',
+          `${tripId}/${selectedMemberId}/ticket-${Date.now()}.${fullTicketFile.name.split('.').pop()}`,
+          fullTicketFile
+        );
+        console.log('[TicketUpload] File uploaded:', fullTicketUrl);
+
+        if (!fullTicketUrl) {
+          console.error('[TicketUpload] File upload failed - no URL returned');
+          alert('Failed to upload ticket file. Please try again.');
+          setLoading(false);
+          return;
+        }
+      }
+
+      console.log('[TicketUpload] Saving ticket to database...');
+      // Upsert ticket
+      const { error } = await supabase.from('tickets').upsert({
+        trip_id: tripId,
+        member_id: selectedMemberId,
+        type: ticketType,
+        carrier: carrier || null,
+        departure_location: departureLocation || null,
+        arrival_location: arrivalLocation || null,
+        departure_time: departureTime ? new Date(departureTime).toISOString() : null,
+        arrival_time: arrivalTime ? new Date(arrivalTime).toISOString() : null,
+        seat_number: seatNumber || null,
+        gate: gate || null,
+        booking_reference: bookingReference || null,
+        full_ticket_url: fullTicketUrl,
+      }, {
+        onConflict: 'trip_id,member_id',
+      });
+
+      if (error) {
+        console.error('[TicketUpload] Database error:', error);
+        alert(`Failed to save ticket: ${error.message}`);
+        setLoading(false);
+        return;
+      }
+
+      console.log('[TicketUpload] Ticket saved successfully');
+      onUploaded();
+    } catch (err) {
+      console.error('[TicketUpload] Unexpected error:', err);
+      alert(`An error occurred: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      setLoading(false);
     }
-
-    // Upsert ticket
-    await supabase.from('tickets').upsert({
-      trip_id: tripId,
-      member_id: selectedMemberId,
-      type: ticketType,
-      carrier: carrier || null,
-      departure_location: departureLocation,
-      arrival_location: arrivalLocation,
-      departure_time: departureTime ? new Date(departureTime).toISOString() : null,
-      arrival_time: arrivalTime ? new Date(arrivalTime).toISOString() : null,
-      seat_number: seatNumber || null,
-      gate: gate || null,
-      booking_reference: bookingReference || null,
-      full_ticket_url: fullTicketUrl,
-    }, {
-      onConflict: 'trip_id,member_id',
-    });
-
-    onUploaded();
   }
 
   return (

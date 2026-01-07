@@ -935,7 +935,10 @@ function MediaTab({ tripId }: { tripId: string }) {
   const [isPlaying, setIsPlaying] = useState(true);
   const [musicEnabled, setMusicEnabled] = useState(true);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [customAudioFile, setCustomAudioFile] = useState<File | null>(null);
+  const [customAudioUrl, setCustomAudioUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Get current location for geotagging uploads
@@ -975,25 +978,41 @@ function MediaTab({ tripId }: { tripId: string }) {
 
   // Audio setup for aftermovie
   useEffect(() => {
-    if (aftermovieReady && musicEnabled) {
-      // Create audio context for background music visualization
-      if (!audioRef.current) {
-        audioRef.current = new Audio('https://cdn.pixabay.com/audio/2022/10/25/audio_b3a3f2a58c.mp3');
+    if (aftermovieReady && musicEnabled && customAudioUrl) {
+      // Create audio context for background music
+      if (!audioRef.current || audioRef.current.src !== customAudioUrl) {
+        if (audioRef.current) {
+          audioRef.current.pause();
+        }
+        audioRef.current = new Audio(customAudioUrl);
         audioRef.current.loop = true;
         audioRef.current.volume = 0.3;
       }
       if (isPlaying) {
-        audioRef.current.play().catch(() => console.log('Audio autoplay blocked'));
+        audioRef.current.play().catch((e) => console.log('Audio autoplay blocked:', e));
       } else {
         audioRef.current.pause();
       }
+    } else if (audioRef.current) {
+      audioRef.current.pause();
     }
     return () => {
       if (audioRef.current) {
         audioRef.current.pause();
       }
     };
-  }, [aftermovieReady, musicEnabled, isPlaying]);
+  }, [aftermovieReady, musicEnabled, isPlaying, customAudioUrl]);
+
+  // Handle custom audio file upload
+  function handleAudioUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      setCustomAudioFile(file);
+      const url = URL.createObjectURL(file);
+      setCustomAudioUrl(url);
+      setMusicEnabled(true);
+    }
+  }
 
   async function loadMedia() {
     console.log('[MediaTab] Loading media for trip:', tripId);
@@ -1459,10 +1478,46 @@ function MediaTab({ tripId }: { tripId: string }) {
                   )}
                 </div>
 
-                {/* Music info */}
-                <div className="flex items-center justify-center gap-2 mb-4 text-sm text-white/60">
-                  <Music className="w-4 h-4" />
-                  <span>Inspiring Journey - Background Music</span>
+                {/* Music Selection */}
+                <div className="bg-white/5 rounded-xl p-4 mb-4">
+                  <div className="flex items-center gap-2 mb-3 text-sm font-medium">
+                    <Music className="w-4 h-4 text-fuchsia-400" />
+                    <span>Background Music</span>
+                  </div>
+                  <div className="flex flex-wrap gap-2 items-center">
+                    <input
+                      ref={audioInputRef}
+                      type="file"
+                      accept="audio/*"
+                      onChange={handleAudioUpload}
+                      className="hidden"
+                    />
+                    <button
+                      onClick={() => audioInputRef.current?.click()}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        customAudioFile
+                          ? 'bg-fuchsia-500/30 text-fuchsia-300 border border-fuchsia-500/50'
+                          : 'bg-white/10 text-white/60 hover:bg-white/20'
+                      }`}
+                    >
+                      {customAudioFile ? `♪ ${customAudioFile.name.substring(0, 20)}...` : '+ Upload Audio'}
+                    </button>
+                    {customAudioFile && (
+                      <button
+                        onClick={() => {
+                          setCustomAudioFile(null);
+                          setCustomAudioUrl(null);
+                          setMusicEnabled(false);
+                        }}
+                        className="px-2 py-1 text-xs text-red-400 hover:text-red-300"
+                      >
+                        Remove
+                      </button>
+                    )}
+                    {!customAudioFile && (
+                      <span className="text-xs text-white/40">No audio selected - upload your own music</span>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex gap-3">
