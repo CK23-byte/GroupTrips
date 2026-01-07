@@ -228,6 +228,23 @@ function TripCard({
   status: { label: string; color: string };
 }) {
   const departure = new Date(trip.departure_time);
+  const returnDate = trip.return_time ? new Date(trip.return_time) : null;
+
+  // Format date range
+  const formatDateRange = () => {
+    const depStr = departure.toLocaleDateString('en-US', {
+      day: 'numeric',
+      month: 'short',
+    });
+    if (returnDate) {
+      const retStr = returnDate.toLocaleDateString('en-US', {
+        day: 'numeric',
+        month: 'short',
+      });
+      return `${depStr} - ${retStr}`;
+    }
+    return depStr;
+  };
 
   return (
     <Link to={`/trip/${trip.id}`} className="card card-hover p-6 block">
@@ -253,12 +270,7 @@ function TripCard({
       <div className="flex items-center gap-4 text-sm text-white/60">
         <div className="flex items-center gap-1">
           <Calendar className="w-4 h-4" />
-          <span>
-            {departure.toLocaleDateString('en-US', {
-              day: 'numeric',
-              month: 'short',
-            })}
-          </span>
+          <span>{formatDateRange()}</span>
         </div>
         <div className="flex items-center gap-1">
           <Users className="w-4 h-4" />
@@ -280,7 +292,10 @@ function CreateTripModal({
   const [step, setStep] = useState<'details' | 'payment' | 'creating' | 'success'>('details');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
+  const [departureDate, setDepartureDate] = useState('');
   const [departureTime, setDepartureTime] = useState('');
+  const [returnDate, setReturnDate] = useState('');
+  const [returnTime, setReturnTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [createdTrip, setCreatedTrip] = useState<Trip | null>(null);
@@ -289,6 +304,7 @@ function CreateTripModal({
     name: string;
     description: string;
     departureTime: string;
+    returnTime?: string;
   } | null>(null);
 
   // Check for payment success on mount
@@ -315,7 +331,17 @@ function CreateTripModal({
       setPendingTripData(tripData);
       setName(tripData.name);
       setDescription(tripData.description);
-      setDepartureTime(tripData.departureTime);
+      // Parse the combined datetime back to separate fields
+      if (tripData.departureTime) {
+        const [date, time] = tripData.departureTime.split('T');
+        setDepartureDate(date || '');
+        setDepartureTime(time?.slice(0, 5) || '');
+      }
+      if (tripData.returnTime) {
+        const [date, time] = tripData.returnTime.split('T');
+        setReturnDate(date || '');
+        setReturnTime(time?.slice(0, 5) || '');
+      }
       setStep('creating');
       // Auto-create trip after payment
       createTripAfterPayment(tripData);
@@ -327,7 +353,7 @@ function CreateTripModal({
     }
   }, [user]);
 
-  async function createTripAfterPayment(tripData: { name: string; description: string; departureTime: string }) {
+  async function createTripAfterPayment(tripData: { name: string; description: string; departureTime: string; returnTime?: string }) {
     if (!user) {
       setError('User not logged in. Please refresh and try again.');
       setStep('details');
@@ -338,9 +364,17 @@ function CreateTripModal({
     setError('');
 
     try {
-      const departureDate = new Date(tripData.departureTime);
-      if (isNaN(departureDate.getTime())) {
+      const departureDateObj = new Date(tripData.departureTime);
+      if (isNaN(departureDateObj.getTime())) {
         throw new Error('Invalid departure date');
+      }
+
+      let returnDateObj: Date | null = null;
+      if (tripData.returnTime) {
+        returnDateObj = new Date(tripData.returnTime);
+        if (isNaN(returnDateObj.getTime())) {
+          returnDateObj = null;
+        }
       }
 
       const lobbyCode = generateLobbyCode();
@@ -352,7 +386,8 @@ function CreateTripModal({
           description: tripData.description || null,
           lobby_code: lobbyCode,
           admin_id: user.id,
-          departure_time: departureDate.toISOString(),
+          departure_time: departureDateObj.toISOString(),
+          return_time: returnDateObj?.toISOString() || null,
           status: 'planning',
         })
         .select()
@@ -391,20 +426,42 @@ function CreateTripModal({
   function handleProceedToPayment(e: React.FormEvent) {
     e.preventDefault();
 
-    if (!departureTime) {
-      setError('Please select a departure date and time');
+    if (!departureDate) {
+      setError('Please select a departure date');
       return;
     }
 
-    const departureDate = new Date(departureTime);
-    if (isNaN(departureDate.getTime())) {
-      setError('Invalid date');
+    // Combine date and time fields
+    const departureDateTimeStr = `${departureDate}T${departureTime || '12:00'}`;
+    const departureDateObj = new Date(departureDateTimeStr);
+    if (isNaN(departureDateObj.getTime())) {
+      setError('Invalid departure date');
       return;
+    }
+
+    // Validate return date if provided
+    let returnDateTimeStr: string | undefined;
+    if (returnDate) {
+      returnDateTimeStr = `${returnDate}T${returnTime || '12:00'}`;
+      const returnDateObj = new Date(returnDateTimeStr);
+      if (isNaN(returnDateObj.getTime())) {
+        setError('Invalid return date');
+        return;
+      }
+      if (returnDateObj < departureDateObj) {
+        setError('Return date must be after departure date');
+        return;
+      }
     }
 
     setError('');
     // Save trip data for after payment
-    const tripData = { name, description, departureTime };
+    const tripData = {
+      name,
+      description,
+      departureTime: departureDateTimeStr,
+      returnTime: returnDateTimeStr
+    };
     sessionStorage.setItem('pendingTripData', JSON.stringify(tripData));
     setStep('payment');
   }
@@ -630,22 +687,85 @@ function CreateTripModal({
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="input-field resize-none"
-              rows={3}
+              rows={2}
               placeholder="A short description of the trip..."
             />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-white/70 mb-2">
-              Departure Date & Time
+          {/* Date Range Picker - Booking.com style */}
+          <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+            <label className="block text-sm font-medium text-white/70 mb-3">
+              Trip Dates
             </label>
-            <input
-              type="datetime-local"
-              value={departureTime}
-              onChange={(e) => setDepartureTime(e.target.value)}
-              className="input-field"
-              required
-            />
+            <div className="grid grid-cols-2 gap-3">
+              {/* Departure */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-xs text-white/50">
+                  <Plane className="w-3 h-3" />
+                  <span>Departure</span>
+                </div>
+                <input
+                  type="date"
+                  value={departureDate}
+                  onChange={(e) => {
+                    setDepartureDate(e.target.value);
+                    // Auto-set return date if not set
+                    if (!returnDate && e.target.value) {
+                      const nextDay = new Date(e.target.value);
+                      nextDay.setDate(nextDay.getDate() + 1);
+                      setReturnDate(nextDay.toISOString().split('T')[0]);
+                    }
+                  }}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="input-field text-center"
+                  required
+                />
+                <input
+                  type="time"
+                  value={departureTime}
+                  onChange={(e) => setDepartureTime(e.target.value)}
+                  className="input-field text-center text-sm"
+                  placeholder="Time (optional)"
+                />
+              </div>
+
+              {/* Return */}
+              <div className="space-y-2">
+                <div className="flex items-center gap-2 text-xs text-white/50">
+                  <Plane className="w-3 h-3 rotate-180" />
+                  <span>Return</span>
+                </div>
+                <input
+                  type="date"
+                  value={returnDate}
+                  onChange={(e) => setReturnDate(e.target.value)}
+                  min={departureDate || new Date().toISOString().split('T')[0]}
+                  className="input-field text-center"
+                />
+                <input
+                  type="time"
+                  value={returnTime}
+                  onChange={(e) => setReturnTime(e.target.value)}
+                  className="input-field text-center text-sm"
+                  placeholder="Time (optional)"
+                />
+              </div>
+            </div>
+
+            {/* Trip Duration Display */}
+            {departureDate && returnDate && (
+              <div className="mt-3 pt-3 border-t border-white/10 text-center">
+                <span className="text-sm text-white/60">
+                  {(() => {
+                    const start = new Date(departureDate);
+                    const end = new Date(returnDate);
+                    const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
+                    const nights = days;
+                    return `${nights} night${nights !== 1 ? 's' : ''}, ${days + 1} day${days + 1 !== 1 ? 's' : ''}`;
+                  })()}
+                </span>
+              </div>
+            )}
           </div>
 
           <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mt-4">

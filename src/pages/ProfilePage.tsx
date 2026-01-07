@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   User,
-  Mail,
   Lock,
   Camera,
   ChevronLeft,
@@ -175,15 +174,12 @@ export default function ProfilePage() {
                 <label className="block text-sm font-medium text-white/70 mb-2">
                   Email
                 </label>
-                <div className="relative">
-                  <Mail className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
-                  <input
-                    type="email"
-                    value={user?.email || ''}
-                    disabled
-                    className="input-field pl-12 opacity-50 cursor-not-allowed"
-                  />
-                </div>
+                <input
+                  type="email"
+                  value={user?.email || ''}
+                  disabled
+                  className="input-field opacity-50 cursor-not-allowed"
+                />
               </div>
 
               <button

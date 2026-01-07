@@ -376,39 +376,79 @@ function TicketUploadModal({
 
       if (fullTicketFile) {
         console.log('[TicketUpload] Uploading file to storage...');
-        fullTicketUrl = await uploadFile(
+
+        // Add timeout to prevent infinite waiting
+        const uploadPromise = uploadFile(
           'tickets',
           `${tripId}/${selectedMemberId}/ticket-${Date.now()}.${fullTicketFile.name.split('.').pop()}`,
           fullTicketFile
         );
-        console.log('[TicketUpload] File uploaded:', fullTicketUrl);
 
-        if (!fullTicketUrl) {
-          console.error('[TicketUpload] File upload failed - no URL returned');
-          alert('Failed to upload ticket file. Please try again.');
-          setLoading(false);
-          return;
+        const timeoutPromise = new Promise<null>((_, reject) => {
+          setTimeout(() => reject(new Error('Upload timed out after 30 seconds')), 30000);
+        });
+
+        try {
+          fullTicketUrl = await Promise.race([uploadPromise, timeoutPromise]);
+          console.log('[TicketUpload] File uploaded:', fullTicketUrl);
+        } catch (uploadError) {
+          console.error('[TicketUpload] Upload error:', uploadError);
+          // Continue without file URL - user can still save ticket data
+          alert('File upload failed, but you can still save ticket details. You can re-upload the file later.');
         }
       }
 
-      console.log('[TicketUpload] Saving ticket to database...');
-      // Upsert ticket
-      const { error } = await supabase.from('tickets').upsert({
+      console.log('[TicketUpload] Saving ticket to database...', {
         trip_id: tripId,
         member_id: selectedMemberId,
         type: ticketType,
-        carrier: carrier || null,
-        departure_location: departureLocation || null,
-        arrival_location: arrivalLocation || null,
-        departure_time: departureTime ? new Date(departureTime).toISOString() : null,
-        arrival_time: arrivalTime ? new Date(arrivalTime).toISOString() : null,
-        seat_number: seatNumber || null,
-        gate: gate || null,
-        booking_reference: bookingReference || null,
-        full_ticket_url: fullTicketUrl,
-      }, {
-        onConflict: 'trip_id,member_id',
       });
+
+      // First try to insert, then update if it exists
+      const { data: existingTicket } = await supabase
+        .from('tickets')
+        .select('id, full_ticket_url')
+        .eq('trip_id', tripId)
+        .eq('member_id', selectedMemberId)
+        .single();
+
+      let error;
+
+      if (existingTicket) {
+        // Update existing ticket
+        console.log('[TicketUpload] Updating existing ticket...');
+        const result = await supabase.from('tickets').update({
+          type: ticketType,
+          carrier: carrier || null,
+          departure_location: departureLocation || null,
+          arrival_location: arrivalLocation || null,
+          departure_time: departureTime ? new Date(departureTime).toISOString() : null,
+          arrival_time: arrivalTime ? new Date(arrivalTime).toISOString() : null,
+          seat_number: seatNumber || null,
+          gate: gate || null,
+          booking_reference: bookingReference || null,
+          full_ticket_url: fullTicketUrl || existingTicket.full_ticket_url || null,
+        }).eq('id', existingTicket.id);
+        error = result.error;
+      } else {
+        // Insert new ticket
+        console.log('[TicketUpload] Inserting new ticket...');
+        const result = await supabase.from('tickets').insert({
+          trip_id: tripId,
+          member_id: selectedMemberId,
+          type: ticketType,
+          carrier: carrier || null,
+          departure_location: departureLocation || null,
+          arrival_location: arrivalLocation || null,
+          departure_time: departureTime ? new Date(departureTime).toISOString() : null,
+          arrival_time: arrivalTime ? new Date(arrivalTime).toISOString() : null,
+          seat_number: seatNumber || null,
+          gate: gate || null,
+          booking_reference: bookingReference || null,
+          full_ticket_url: fullTicketUrl,
+        });
+        error = result.error;
+      }
 
       if (error) {
         console.error('[TicketUpload] Database error:', error);
@@ -422,6 +462,7 @@ function TicketUploadModal({
     } catch (err) {
       console.error('[TicketUpload] Unexpected error:', err);
       alert(`An error occurred: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
       setLoading(false);
     }
   }
