@@ -84,6 +84,21 @@ select.input-field {
   background-position: right 12px center;
   background-size: 16px;
   padding-right: 40px;
+  cursor: pointer;
+}
+
+/* Style dropdown options for dark mode */
+select.input-field option {
+  background-color: #1e293b;
+  color: white;
+  padding: 12px;
+}
+
+select.input-field option:hover,
+select.input-field option:focus,
+select.input-field option:checked {
+  background-color: #3b82f6;
+  color: white;
 }
 
 /* Ticket reveal animation */

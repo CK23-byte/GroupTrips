@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plane, Eye, EyeOff } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
@@ -13,24 +13,71 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const { signUp, signInWithGoogle, signInWithApple } = useAuth();
   const navigate = useNavigate();
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
+
+  // Helper to set loading with auto-timeout
+  function startLoading() {
+    setLoading(true);
+    // Failsafe: reset loading after 15 seconds to prevent stuck state
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+    }
+    timeoutRef.current = setTimeout(() => {
+      setLoading(false);
+      setError('Request timed out. Please try again.');
+    }, 15000);
+  }
+
+  function stopLoading() {
+    setLoading(false);
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+  }
 
   async function handleGoogleSignIn() {
     setError('');
-    setLoading(true);
-    const { error } = await signInWithGoogle();
-    if (error) {
-      setError(error);
-      setLoading(false);
+    startLoading();
+
+    try {
+      const { error } = await signInWithGoogle();
+      if (error) {
+        setError(error);
+        stopLoading();
+      }
+      // For OAuth, the page will redirect, so we don't need to stop loading
+    } catch (err) {
+      console.error('[RegisterPage] handleGoogleSignIn error:', err);
+      setError('An unexpected error occurred. Please try again.');
+      stopLoading();
     }
   }
 
   async function handleAppleSignIn() {
     setError('');
-    setLoading(true);
-    const { error } = await signInWithApple();
-    if (error) {
-      setError(error);
-      setLoading(false);
+    startLoading();
+
+    try {
+      const { error } = await signInWithApple();
+      if (error) {
+        setError(error);
+        stopLoading();
+      }
+      // For OAuth, the page will redirect, so we don't need to stop loading
+    } catch (err) {
+      console.error('[RegisterPage] handleAppleSignIn error:', err);
+      setError('An unexpected error occurred. Please try again.');
+      stopLoading();
     }
   }
 
@@ -48,15 +95,22 @@ export default function RegisterPage() {
       return;
     }
 
-    setLoading(true);
+    startLoading();
 
-    const { error } = await signUp(email, password, name);
+    try {
+      const { error } = await signUp(email, password, name);
 
-    if (error) {
-      setError(error);
-      setLoading(false);
-    } else {
-      navigate('/dashboard');
+      if (error) {
+        setError(error);
+        stopLoading();
+      } else {
+        // Success - navigate (component will unmount)
+        navigate('/dashboard');
+      }
+    } catch (err) {
+      console.error('[RegisterPage] handleSubmit error:', err);
+      setError('An unexpected error occurred. Please try again.');
+      stopLoading();
     }
   }
 

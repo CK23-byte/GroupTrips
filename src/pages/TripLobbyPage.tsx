@@ -956,11 +956,13 @@ function MediaTab({ tripId }: { tripId: string }) {
     loadMedia();
   }, [tripId]);
 
-  // Slideshow effect for aftermovie preview
+  // Slideshow effect for aftermovie preview - now includes videos
   const photos = media.filter(m => m.type === 'photo');
+  const videos = media.filter(m => m.type === 'video');
+  const allMedia = [...photos, ...videos]; // Photos first, then videos
   const selectedForMovie = editMode && selectedPhotos.length > 0
-    ? photos.filter(p => selectedPhotos.includes(p.id))
-    : photos;
+    ? allMedia.filter(p => selectedPhotos.includes(p.id))
+    : allMedia;
 
   useEffect(() => {
     if (aftermovieReady && selectedForMovie.length > 0 && isPlaying) {
@@ -1086,12 +1088,12 @@ function MediaTab({ tripId }: { tripId: string }) {
   }
 
   async function generateAftermovie() {
-    const photosToUse = editMode && selectedPhotos.length > 0
-      ? photos.filter(p => selectedPhotos.includes(p.id))
-      : photos;
+    const mediaToUse = editMode && selectedPhotos.length > 0
+      ? allMedia.filter(p => selectedPhotos.includes(p.id))
+      : allMedia;
 
-    if (photosToUse.length < 3) {
-      setUploadError('You need at least 3 photos to generate an aftermovie. Select more photos or add more to the gallery.');
+    if (mediaToUse.length < 3) {
+      setUploadError('You need at least 3 photos/videos to generate an aftermovie. Select more or add more to the gallery.');
       return;
     }
 
@@ -1211,7 +1213,7 @@ function MediaTab({ tripId }: { tripId: string }) {
               'Add Media'
             )}
           </button>
-          {photos.length >= 1 && (
+          {allMedia.length >= 1 && (
             <button
               onClick={() => {
                 setEditMode(!editMode);
@@ -1223,14 +1225,14 @@ function MediaTab({ tripId }: { tripId: string }) {
               {editMode ? 'Done Editing' : 'Edit Selection'}
             </button>
           )}
-          {photos.length >= 3 && (
+          {allMedia.length >= 3 && (
             <button
               onClick={generateAftermovie}
               className="btn-primary flex items-center gap-2"
             >
               <Play className="w-4 h-4" />
               {editMode && selectedPhotos.length > 0
-                ? `Create with ${selectedPhotos.length} photos`
+                ? `Create with ${selectedPhotos.length} items`
                 : 'Generate Aftermovie'}
             </button>
           )}
@@ -1242,8 +1244,8 @@ function MediaTab({ tripId }: { tripId: string }) {
         <div className="bg-fuchsia-500/20 border border-fuchsia-500/50 rounded-xl p-4 text-sm">
           <p className="font-medium mb-1">✨ Edit Mode Active</p>
           <p className="text-white/70">
-            Click on photos to select/deselect them for your aftermovie.
-            {selectedPhotos.length > 0 && ` Selected: ${selectedPhotos.length} photos`}
+            Click on photos and videos to select/deselect them for your aftermovie.
+            {selectedPhotos.length > 0 && ` Selected: ${selectedPhotos.length} items`}
           </p>
         </div>
       )}
@@ -1260,9 +1262,9 @@ function MediaTab({ tripId }: { tripId: string }) {
         {media.map((item) => (
           <div
             key={item.id}
-            onClick={() => editMode && item.type === 'photo' && togglePhotoSelection(item.id)}
+            onClick={() => editMode && togglePhotoSelection(item.id)}
             className={`aspect-square rounded-xl overflow-hidden bg-white/5 relative group ${
-              editMode && item.type === 'photo' ? 'cursor-pointer' : ''
+              editMode ? 'cursor-pointer' : ''
             } ${
               editMode && selectedPhotos.includes(item.id)
                 ? 'ring-4 ring-fuchsia-500 ring-offset-2 ring-offset-slate-900'
@@ -1284,7 +1286,7 @@ function MediaTab({ tripId }: { tripId: string }) {
               />
             )}
             {/* Selection indicator */}
-            {editMode && item.type === 'photo' && (
+            {editMode && (
               <div className={`absolute top-2 right-2 w-6 h-6 rounded-full border-2 flex items-center justify-center ${
                 selectedPhotos.includes(item.id)
                   ? 'bg-fuchsia-500 border-fuchsia-500'
@@ -1345,21 +1347,40 @@ function MediaTab({ tripId }: { tripId: string }) {
               <>
                 <h2 className="text-2xl font-bold mb-2">Your Aftermovie</h2>
                 <p className="text-white/60 mb-4">
-                  {selectedForMovie.length} photos compiled with music sync
+                  {selectedForMovie.filter(m => m.type === 'photo').length} photos, {selectedForMovie.filter(m => m.type === 'video').length} videos compiled with music sync
                 </p>
 
                 {/* Slideshow Preview */}
                 <div className="aspect-video bg-black rounded-xl mb-4 relative overflow-hidden">
                   {selectedForMovie.map((item, index) => (
-                    <img
-                      key={item.id}
-                      src={item.file_url}
-                      alt=""
-                      className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
-                        index === currentSlide ? 'opacity-100' : 'opacity-0'
-                      }`}
-                    />
+                    item.type === 'video' ? (
+                      <video
+                        key={item.id}
+                        src={item.file_url}
+                        autoPlay={index === currentSlide && isPlaying}
+                        muted={musicEnabled} // Mute video if music is on
+                        loop
+                        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
+                          index === currentSlide ? 'opacity-100' : 'opacity-0'
+                        }`}
+                      />
+                    ) : (
+                      <img
+                        key={item.id}
+                        src={item.file_url}
+                        alt=""
+                        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
+                          index === currentSlide ? 'opacity-100' : 'opacity-0'
+                        }`}
+                      />
+                    )
                   ))}
+
+                  {/* GroupTrips Watermark */}
+                  <div className="absolute bottom-4 right-4 flex items-center gap-2 bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-full">
+                    <Plane className="w-4 h-4 text-blue-400" />
+                    <span className="text-sm font-semibold text-white/90">GroupTrips</span>
+                  </div>
 
                   {/* Music visualization overlay */}
                   {musicEnabled && isPlaying && (
