@@ -2,8 +2,8 @@ import { createContext, useContext, useState, useEffect, useRef, type ReactNode 
 import { supabase } from '../lib/supabase';
 import type { User } from '../types';
 
-// Debug logging helper
-const DEBUG = true;
+// Debug logging helper - only logs in development mode
+const DEBUG = import.meta.env.DEV;
 function authLog(message: string, data?: unknown) {
   if (DEBUG) {
     console.log(`[Auth] ${message}`, data !== undefined ? data : '');
