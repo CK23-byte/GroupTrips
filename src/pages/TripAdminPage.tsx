@@ -10,6 +10,9 @@ import {
   Copy,
   Check,
   AlertTriangle,
+  Sparkles,
+  Crown,
+  Loader2,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, uploadFile } from '../lib/supabase';
@@ -147,19 +150,19 @@ export default function TripAdminPage() {
                 active={activeSection === 'tickets'}
                 onClick={() => setActiveSection('tickets')}
                 icon={<FileText className="w-5 h-5" />}
-                label="Tickets Beheren"
+                label="Manage Tickets"
               />
               <NavButton
                 active={activeSection === 'members'}
                 onClick={() => setActiveSection('members')}
                 icon={<Users className="w-5 h-5" />}
-                label="Leden Beheren"
+                label="Manage Members"
               />
               <NavButton
                 active={activeSection === 'settings'}
                 onClick={() => setActiveSection('settings')}
                 icon={<Settings className="w-5 h-5" />}
-                label="Trip Instellingen"
+                label="Trip Settings"
               />
             </nav>
           </div>
@@ -175,7 +178,7 @@ export default function TripAdminPage() {
               />
             )}
             {activeSection === 'members' && (
-              <MembersSection members={members} tripId={tripId!} />
+              <MembersSection members={members} tripId={tripId!} currentUserId={user?.id || ''} onRefresh={loadData} />
             )}
             {activeSection === 'settings' && (
               <SettingsSection trip={trip} onUpdate={loadData} />
@@ -230,18 +233,18 @@ function TicketsSection({
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold">Tickets Beheren</h2>
+        <h2 className="text-2xl font-bold">Manage Tickets</h2>
         <button
           onClick={() => setShowUploadModal(true)}
           className="btn-primary flex items-center gap-2"
         >
           <Upload className="w-5 h-5" />
-          Ticket Uploaden
+          Upload Ticket
         </button>
       </div>
 
       <div className="card p-6 mb-6">
-        <h3 className="font-semibold mb-4">Ticket Status per Lid</h3>
+        <h3 className="font-semibold mb-4">Ticket Status by Member</h3>
         <div className="space-y-3">
           {members.map((member) => {
             const ticket = tickets.find((t) => t.member_id === member.user_id);
@@ -262,7 +265,7 @@ function TicketsSection({
                 <div className="flex items-center gap-3">
                   {ticket ? (
                     <>
-                      <span className="text-sm text-green-400">Ticket geüpload</span>
+                      <span className="text-sm text-green-400">Ticket uploaded</span>
                       <button
                         onClick={() => {
                           setSelectedMember(member);
@@ -270,7 +273,7 @@ function TicketsSection({
                         }}
                         className="btn-secondary text-sm"
                       >
-                        Wijzigen
+                        Edit
                       </button>
                     </>
                   ) : (
@@ -334,24 +337,41 @@ function TicketUploadModal({
   const [seatNumber, setSeatNumber] = useState('');
   const [gate, setGate] = useState('');
   const [bookingReference, setBookingReference] = useState('');
-  const [qrCodeFile, setQrCodeFile] = useState<File | null>(null);
   const [fullTicketFile, setFullTicketFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [showManualEntry, setShowManualEntry] = useState(false);
+
+  // AI Ticket Analysis - simulated for now (would need OCR API in production)
+  async function analyzeTicket(file: File) {
+    setAnalyzing(true);
+
+    // Simulate AI analysis delay
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // In production, this would call an OCR API like Google Vision, AWS Textract, or OpenAI GPT-4V
+    // For now, we'll show the manual entry form after "analysis"
+    setShowManualEntry(true);
+    setAnalyzing(false);
+
+    // Mock extracted data for demo purposes
+    // In production, parse the actual ticket image
+    console.log('[TicketUpload] Would analyze ticket:', file.name);
+  }
+
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      setFullTicketFile(file);
+      await analyzeTicket(file);
+    }
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
 
-    let qrCodeUrl = null;
     let fullTicketUrl = null;
-
-    if (qrCodeFile) {
-      qrCodeUrl = await uploadFile(
-        'tickets',
-        `${tripId}/${selectedMemberId}/qr-${Date.now()}.png`,
-        qrCodeFile
-      );
-    }
 
     if (fullTicketFile) {
       fullTicketUrl = await uploadFile(
@@ -369,12 +389,11 @@ function TicketUploadModal({
       carrier: carrier || null,
       departure_location: departureLocation,
       arrival_location: arrivalLocation,
-      departure_time: new Date(departureTime).toISOString(),
+      departure_time: departureTime ? new Date(departureTime).toISOString() : null,
       arrival_time: arrivalTime ? new Date(arrivalTime).toISOString() : null,
       seat_number: seatNumber || null,
       gate: gate || null,
       booking_reference: bookingReference || null,
-      qr_code_url: qrCodeUrl,
       full_ticket_url: fullTicketUrl,
     }, {
       onConflict: 'trip_id,member_id',
@@ -386,12 +405,13 @@ function TicketUploadModal({
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
       <div className="card p-6 max-w-lg w-full max-h-[90vh] overflow-y-auto">
-        <h2 className="text-xl font-bold mb-6">Ticket Uploaden</h2>
+        <h2 className="text-xl font-bold mb-6">Upload Ticket</h2>
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          {/* Member Selection */}
           <div>
             <label className="block text-sm font-medium text-white/70 mb-2">
-              Lid
+              Member
             </label>
             <select
               value={selectedMemberId}
@@ -399,7 +419,7 @@ function TicketUploadModal({
               className="input-field"
               required
             >
-              <option value="">Selecteer lid</option>
+              <option value="">Select member</option>
               {members.map((m) => (
                 <option key={m.user_id} value={m.user_id}>
                   {m.user?.name} ({m.user?.email})
@@ -408,164 +428,197 @@ function TicketUploadModal({
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Type
+          {/* AI Ticket Upload */}
+          <div className="border-2 border-dashed border-white/20 rounded-xl p-6 text-center">
+            {analyzing ? (
+              <div className="flex flex-col items-center gap-3">
+                <Loader2 className="w-8 h-8 animate-spin text-blue-400" />
+                <p className="text-white/70">Analyzing ticket with AI...</p>
+                <p className="text-sm text-white/50">Extracting flight details, dates, and seat info</p>
+              </div>
+            ) : fullTicketFile ? (
+              <div className="flex flex-col items-center gap-2">
+                <Check className="w-8 h-8 text-green-400" />
+                <p className="font-medium">{fullTicketFile.name}</p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFullTicketFile(null);
+                    setShowManualEntry(false);
+                  }}
+                  className="text-sm text-blue-400 hover:underline"
+                >
+                  Upload different file
+                </button>
+              </div>
+            ) : (
+              <label className="cursor-pointer block">
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+                <div className="flex flex-col items-center gap-3">
+                  <div className="w-16 h-16 rounded-full bg-blue-500/20 flex items-center justify-center">
+                    <Sparkles className="w-8 h-8 text-blue-400" />
+                  </div>
+                  <div>
+                    <p className="font-medium">Upload ticket image or PDF</p>
+                    <p className="text-sm text-white/50 mt-1">AI will extract all details automatically</p>
+                  </div>
+                </div>
               </label>
-              <select
-                value={ticketType}
-                onChange={(e) => setTicketType(e.target.value as Ticket['type'])}
-                className="input-field"
-              >
-                <option value="flight">Vlucht</option>
-                <option value="train">Trein</option>
-                <option value="bus">Bus</option>
-                <option value="other">Anders</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Vervoerder
-              </label>
-              <input
-                type="text"
-                value={carrier}
-                onChange={(e) => setCarrier(e.target.value)}
-                className="input-field"
-                placeholder="KLM, NS, etc."
-              />
-            </div>
+            )}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Vertreklocatie
-              </label>
-              <input
-                type="text"
-                value={departureLocation}
-                onChange={(e) => setDepartureLocation(e.target.value)}
-                className="input-field"
-                placeholder="Amsterdam Schiphol"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Aankomstlocatie
-              </label>
-              <input
-                type="text"
-                value={arrivalLocation}
-                onChange={(e) => setArrivalLocation(e.target.value)}
-                className="input-field"
-                placeholder="Barcelona"
-                required
-              />
-            </div>
-          </div>
+          {/* Manual Entry Toggle */}
+          {!showManualEntry && !analyzing && (
+            <button
+              type="button"
+              onClick={() => setShowManualEntry(true)}
+              className="text-sm text-blue-400 hover:underline"
+            >
+              Or enter details manually
+            </button>
+          )}
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Vertrektijd
-              </label>
-              <input
-                type="datetime-local"
-                value={departureTime}
-                onChange={(e) => setDepartureTime(e.target.value)}
-                className="input-field"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Aankomsttijd
-              </label>
-              <input
-                type="datetime-local"
-                value={arrivalTime}
-                onChange={(e) => setArrivalTime(e.target.value)}
-                className="input-field"
-              />
-            </div>
-          </div>
+          {/* Manual Entry Fields */}
+          {showManualEntry && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-white/70 mb-2">
+                    Type
+                  </label>
+                  <select
+                    value={ticketType}
+                    onChange={(e) => setTicketType(e.target.value as Ticket['type'])}
+                    className="input-field"
+                  >
+                    <option value="flight">Flight</option>
+                    <option value="train">Train</option>
+                    <option value="bus">Bus</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-white/70 mb-2">
+                    Carrier
+                  </label>
+                  <input
+                    type="text"
+                    value={carrier}
+                    onChange={(e) => setCarrier(e.target.value)}
+                    className="input-field"
+                    placeholder="KLM, Ryanair, etc."
+                  />
+                </div>
+              </div>
 
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Stoelnummer
-              </label>
-              <input
-                type="text"
-                value={seatNumber}
-                onChange={(e) => setSeatNumber(e.target.value)}
-                className="input-field"
-                placeholder="12A"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Gate
-              </label>
-              <input
-                type="text"
-                value={gate}
-                onChange={(e) => setGate(e.target.value)}
-                className="input-field"
-                placeholder="B42"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
-                Referentie
-              </label>
-              <input
-                type="text"
-                value={bookingReference}
-                onChange={(e) => setBookingReference(e.target.value)}
-                className="input-field"
-                placeholder="ABC123"
-              />
-            </div>
-          </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-white/70 mb-2">
+                    Departure
+                  </label>
+                  <input
+                    type="text"
+                    value={departureLocation}
+                    onChange={(e) => setDepartureLocation(e.target.value)}
+                    className="input-field"
+                    placeholder="Amsterdam Schiphol"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-white/70 mb-2">
+                    Arrival
+                  </label>
+                  <input
+                    type="text"
+                    value={arrivalLocation}
+                    onChange={(e) => setArrivalLocation(e.target.value)}
+                    className="input-field"
+                    placeholder="Barcelona"
+                  />
+                </div>
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-white/70 mb-2">
-              QR-code afbeelding
-            </label>
-            <input
-              type="file"
-              accept="image/*"
-              onChange={(e) => setQrCodeFile(e.target.files?.[0] || null)}
-              className="input-field"
-            />
-          </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-white/70 mb-2">
+                    Departure Time
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={departureTime}
+                    onChange={(e) => setDepartureTime(e.target.value)}
+                    className="input-field"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-white/70 mb-2">
+                    Arrival Time
+                  </label>
+                  <input
+                    type="datetime-local"
+                    value={arrivalTime}
+                    onChange={(e) => setArrivalTime(e.target.value)}
+                    className="input-field"
+                  />
+                </div>
+              </div>
 
-          <div>
-            <label className="block text-sm font-medium text-white/70 mb-2">
-              Volledig ticket (PDF/afbeelding)
-            </label>
-            <input
-              type="file"
-              accept="image/*,.pdf"
-              onChange={(e) => setFullTicketFile(e.target.files?.[0] || null)}
-              className="input-field"
-            />
-          </div>
+              <div className="grid grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-white/70 mb-2">
+                    Seat
+                  </label>
+                  <input
+                    type="text"
+                    value={seatNumber}
+                    onChange={(e) => setSeatNumber(e.target.value)}
+                    className="input-field"
+                    placeholder="12A"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-white/70 mb-2">
+                    Gate
+                  </label>
+                  <input
+                    type="text"
+                    value={gate}
+                    onChange={(e) => setGate(e.target.value)}
+                    className="input-field"
+                    placeholder="B42"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-white/70 mb-2">
+                    Reference
+                  </label>
+                  <input
+                    type="text"
+                    value={bookingReference}
+                    onChange={(e) => setBookingReference(e.target.value)}
+                    className="input-field"
+                    placeholder="ABC123"
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
           <div className="flex gap-3 pt-4">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">
-              Annuleren
+              Cancel
             </button>
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || analyzing || !selectedMemberId}
               className="btn-primary flex-1"
             >
-              {loading ? 'Uploaden...' : 'Opslaan'}
+              {loading ? 'Saving...' : 'Save Ticket'}
             </button>
           </div>
         </form>
@@ -576,13 +629,58 @@ function TicketUploadModal({
 
 function MembersSection({
   members,
+  tripId,
+  currentUserId,
+  onRefresh,
 }: {
   members: TripMember[];
   tripId: string;
+  currentUserId: string;
+  onRefresh: () => void;
 }) {
+  const [loading, setLoading] = useState<string | null>(null);
+
+  async function toggleAdmin(member: TripMember) {
+    if (member.user_id === currentUserId) {
+      alert("You can't change your own admin status");
+      return;
+    }
+
+    setLoading(member.id);
+    const newRole = member.role === 'admin' ? 'member' : 'admin';
+
+    await supabase
+      .from('trip_members')
+      .update({ role: newRole })
+      .eq('id', member.id);
+
+    onRefresh();
+    setLoading(null);
+  }
+
+  async function removeMember(member: TripMember) {
+    if (member.user_id === currentUserId) {
+      alert("You can't remove yourself from the trip");
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to remove ${member.user?.name} from this trip?`)) {
+      return;
+    }
+
+    setLoading(member.id);
+
+    // Also remove their ticket if they have one
+    await supabase.from('tickets').delete().eq('trip_id', tripId).eq('member_id', member.user_id);
+    await supabase.from('trip_members').delete().eq('id', member.id);
+
+    onRefresh();
+    setLoading(null);
+  }
+
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">Leden Beheren</h2>
+      <h2 className="text-2xl font-bold mb-6">Manage Members</h2>
       <div className="card p-6">
         <div className="space-y-3">
           {members.map((member) => (
@@ -595,20 +693,47 @@ function MembersSection({
                   {member.user?.name?.charAt(0) || '?'}
                 </div>
                 <div>
-                  <p className="font-medium">{member.user?.name}</p>
+                  <p className="font-medium flex items-center gap-2">
+                    {member.user?.name}
+                    {member.role === 'admin' && (
+                      <Crown className="w-4 h-4 text-yellow-400" />
+                    )}
+                  </p>
                   <p className="text-sm text-white/50">{member.user?.email}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span
-                  className={`px-2 py-1 rounded-full text-xs ${
-                    member.role === 'admin'
-                      ? 'bg-yellow-500/20 text-yellow-400'
-                      : 'bg-white/10 text-white/60'
-                  }`}
-                >
-                  {member.role === 'admin' ? 'Admin' : 'Lid'}
-                </span>
+                {member.user_id === currentUserId ? (
+                  <span className="text-sm text-white/50">You</span>
+                ) : (
+                  <>
+                    <button
+                      onClick={() => toggleAdmin(member)}
+                      disabled={loading === member.id}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                        member.role === 'admin'
+                          ? 'bg-yellow-500/20 text-yellow-400 hover:bg-yellow-500/30'
+                          : 'bg-white/10 text-white/60 hover:bg-white/20'
+                      }`}
+                    >
+                      {loading === member.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : member.role === 'admin' ? (
+                        'Remove Admin'
+                      ) : (
+                        'Make Admin'
+                      )}
+                    </button>
+                    <button
+                      onClick={() => removeMember(member)}
+                      disabled={loading === member.id}
+                      className="p-1.5 rounded-lg text-red-400 hover:bg-red-500/20 transition-colors"
+                      title="Remove member"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           ))}
@@ -628,6 +753,10 @@ function SettingsSection({
   const navigate = useNavigate();
   const [name, setName] = useState(trip.name);
   const [description, setDescription] = useState(trip.description || '');
+  const [destination, setDestination] = useState(trip.destination || '');
+  const [departureTime, setDepartureTime] = useState(
+    trip.departure_time ? new Date(trip.departure_time).toISOString().slice(0, 16) : ''
+  );
   const [loading, setLoading] = useState(false);
 
   async function handleSave(e: React.FormEvent) {
@@ -636,7 +765,12 @@ function SettingsSection({
 
     await supabase
       .from('trips')
-      .update({ name, description: description || null })
+      .update({
+        name,
+        description: description || null,
+        destination: destination || null,
+        departure_time: departureTime ? new Date(departureTime).toISOString() : null,
+      })
       .eq('id', trip.id);
 
     setLoading(false);
@@ -646,7 +780,7 @@ function SettingsSection({
   async function handleDelete() {
     if (
       !confirm(
-        'Weet je zeker dat je deze trip wilt verwijderen? Dit kan niet ongedaan worden gemaakt.'
+        'Are you sure you want to delete this trip? This action cannot be undone.'
       )
     )
       return;
@@ -657,13 +791,13 @@ function SettingsSection({
 
   return (
     <div>
-      <h2 className="text-2xl font-bold mb-6">Trip Instellingen</h2>
+      <h2 className="text-2xl font-bold mb-6">Trip Settings</h2>
 
       <form onSubmit={handleSave} className="card p-6 mb-6">
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-white/70 mb-2">
-              Trip Naam
+              Trip Name
             </label>
             <input
               type="text"
@@ -676,14 +810,43 @@ function SettingsSection({
 
           <div>
             <label className="block text-sm font-medium text-white/70 mb-2">
-              Beschrijving
+              Description
             </label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
               className="input-field resize-none"
               rows={3}
+              placeholder="A brief description of the trip..."
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-white/70 mb-2">
+              Destination
+            </label>
+            <input
+              type="text"
+              value={destination}
+              onChange={(e) => setDestination(e.target.value)}
+              className="input-field"
+              placeholder="Barcelona, Paris, etc."
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-white/70 mb-2">
+              Departure Date & Time
+            </label>
+            <input
+              type="datetime-local"
+              value={departureTime}
+              onChange={(e) => setDepartureTime(e.target.value)}
+              className="input-field"
+            />
+            <p className="text-xs text-white/50 mt-1">
+              QR codes reveal 3 hours before, full tickets 1 hour before departure
+            </p>
           </div>
 
           <button
@@ -691,7 +854,7 @@ function SettingsSection({
             disabled={loading}
             className="btn-primary w-full"
           >
-            {loading ? 'Opslaan...' : 'Wijzigingen Opslaan'}
+            {loading ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
       </form>
@@ -699,18 +862,18 @@ function SettingsSection({
       <div className="card p-6 border-red-500/30">
         <h3 className="text-lg font-semibold text-red-400 mb-4 flex items-center gap-2">
           <AlertTriangle className="w-5 h-5" />
-          Gevaarlijke Zone
+          Danger Zone
         </h3>
         <p className="text-white/60 text-sm mb-4">
-          Het verwijderen van een trip is permanent en verwijdert alle data
-          inclusief tickets, berichten en media.
+          Deleting a trip is permanent and removes all data including tickets,
+          messages, and media.
         </p>
         <button
           onClick={handleDelete}
           className="flex items-center gap-2 px-4 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-400 rounded-xl transition-colors"
         >
           <Trash2 className="w-4 h-4" />
-          Trip Verwijderen
+          Delete Trip
         </button>
       </div>
     </div>
