@@ -19,7 +19,8 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-qrcode-logo": "^4.0.0",
-    "react-router-dom": "^7.11.0"
+    "react-router-dom": "^7.11.0",
+    "stripe": "^20.1.1"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -28,6 +29,7 @@
     "@types/qrcode.react": "^1.0.5",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
+    "@vercel/node": "^5.5.16",
     "@vitejs/plugin-react": "^5.1.1",
     "autoprefixer": "^10.4.23",
     "eslint": "^9.39.1",
