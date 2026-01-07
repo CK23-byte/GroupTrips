@@ -16,10 +16,11 @@ const TermsPage = lazy(() => import('./pages/TermsPage'));
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'));
 
 // Loading spinner for suspense fallback
-function PageLoader() {
+function PageLoader({ reason = 'page' }: { reason?: string }) {
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-screen flex flex-col items-center justify-center gap-4">
       <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full" />
+      <p className="text-white/50 text-sm">Loading {reason}...</p>
     </div>
   );
 }
@@ -27,8 +28,11 @@ function PageLoader() {
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
 
+  // Log auth state for debugging
+  console.log(`[ProtectedRoute] loading=${loading}, user=${user?.id || 'null'}`);
+
   if (loading) {
-    return <PageLoader />;
+    return <PageLoader reason="authentication" />;
   }
 
   if (!user) {
@@ -37,6 +41,14 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const paymentStatus = urlParams.get('payment');
     const hasPendingPayment = sessionStorage.getItem('pendingPayment') === 'true';
     const hasPendingTripData = sessionStorage.getItem('pendingTripData');
+
+    // Log diagnostic info when not authenticated
+    console.log('[ProtectedRoute] User not authenticated, checking payment return...', {
+      paymentStatus,
+      hasPendingTripData: !!hasPendingTripData,
+      hasPendingPayment,
+      url: window.location.href,
+    });
 
     if ((paymentStatus === 'success' || hasPendingPayment) && hasPendingTripData) {
       sessionStorage.setItem('returnAfterLogin', window.location.href);

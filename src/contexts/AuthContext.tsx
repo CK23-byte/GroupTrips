@@ -2,12 +2,10 @@ import { createContext, useContext, useState, useEffect, useRef, type ReactNode 
 import { supabase } from '../lib/supabase';
 import type { User } from '../types';
 
-// Debug logging helper - only logs in development mode
-const DEBUG = import.meta.env.DEV;
+// Debug logging helper - ALWAYS ON for now to diagnose payment return issue
 function authLog(message: string, data?: unknown) {
-  if (DEBUG) {
-    console.log(`[Auth] ${message}`, data !== undefined ? data : '');
-  }
+  const timestamp = new Date().toISOString().split('T')[1].slice(0, 12);
+  console.log(`[${timestamp}][Auth] ${message}`, data !== undefined ? data : '');
 }
 
 interface AuthContextType {
