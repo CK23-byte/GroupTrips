@@ -55,8 +55,14 @@ export default function LoginPage() {
         setError(error);
         stopLoading();
       } else {
-        // Success - navigate (component will unmount)
-        navigate('/dashboard');
+        // Success - check if we need to return to a specific URL (e.g., after payment)
+        const returnUrl = sessionStorage.getItem('returnAfterLogin');
+        if (returnUrl) {
+          sessionStorage.removeItem('returnAfterLogin');
+          window.location.href = returnUrl;
+        } else {
+          navigate('/dashboard');
+        }
       }
     } catch (err) {
       console.error('[LoginPage] handleSubmit error:', err);

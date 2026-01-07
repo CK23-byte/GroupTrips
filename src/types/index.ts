@@ -11,6 +11,7 @@ export interface User {
 export interface Trip {
   id: string;
   name: string;
+  group_name?: string;
   description?: string;
   lobby_code: string;
   admin_id: string;
@@ -91,6 +92,7 @@ export interface TripMessage {
   content: string;
   type: 'announcement' | 'update' | 'reminder' | 'alert';
   is_pinned: boolean;
+  media_url?: string;
   created_at: string;
   sender?: User;
 }

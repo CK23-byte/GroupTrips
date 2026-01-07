@@ -291,6 +291,7 @@ function CreateTripModal({
   const { user } = useAuth();
   const [step, setStep] = useState<'details' | 'payment' | 'creating' | 'success'>('details');
   const [name, setName] = useState('');
+  const [groupName, setGroupName] = useState('');
   const [description, setDescription] = useState('');
   const [departureDate, setDepartureDate] = useState('');
   const [departureTime, setDepartureTime] = useState('');
@@ -302,6 +303,7 @@ function CreateTripModal({
   const [copied, setCopied] = useState(false);
   const [_pendingTripData, setPendingTripData] = useState<{
     name: string;
+    groupName?: string;
     description: string;
     departureTime: string;
     returnTime?: string;
@@ -330,6 +332,7 @@ function CreateTripModal({
 
       setPendingTripData(tripData);
       setName(tripData.name);
+      setGroupName(tripData.groupName || '');
       setDescription(tripData.description);
       // Parse the combined datetime back to separate fields
       if (tripData.departureTime) {
@@ -353,7 +356,7 @@ function CreateTripModal({
     }
   }, [user]);
 
-  async function createTripAfterPayment(tripData: { name: string; description: string; departureTime: string; returnTime?: string }) {
+  async function createTripAfterPayment(tripData: { name: string; groupName?: string; description: string; departureTime: string; returnTime?: string }) {
     if (!user) {
       setError('User not logged in. Please refresh and try again.');
       setStep('details');
@@ -383,6 +386,7 @@ function CreateTripModal({
         .from('trips')
         .insert({
           name: tripData.name,
+          group_name: tripData.groupName || null,
           description: tripData.description || null,
           lobby_code: lobbyCode,
           admin_id: user.id,
@@ -458,6 +462,7 @@ function CreateTripModal({
     // Save trip data for after payment
     const tripData = {
       name,
+      groupName,
       description,
       departureTime: departureDateTimeStr,
       returnTime: returnDateTimeStr
@@ -604,7 +609,10 @@ function CreateTripModal({
 
           <div className="bg-white/5 rounded-xl p-6 mb-6">
             <div className="flex items-center justify-between mb-4">
-              <span className="text-white/70">Trip: {name}</span>
+              <div className="text-left">
+                <span className="text-white/70">Trip: {name}</span>
+                {groupName && <p className="text-sm text-white/50">Group: {groupName}</p>}
+              </div>
               <span className="text-2xl font-bold">€24.99</span>
             </div>
             <ul className="space-y-2 text-sm text-white/60">
@@ -676,6 +684,19 @@ function CreateTripModal({
               className="input-field"
               placeholder="Weekend in Barcelona"
               required
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-white/70 mb-2">
+              Group Name (optional)
+            </label>
+            <input
+              type="text"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              className="input-field"
+              placeholder="The Boys, Family Trip, etc."
             />
           </div>
 

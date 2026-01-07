@@ -24,6 +24,16 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) {
+    // Check if returning from payment - store URL for after login
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentStatus = urlParams.get('payment');
+    const hasPendingPayment = sessionStorage.getItem('pendingPayment') === 'true';
+    const hasPendingTripData = sessionStorage.getItem('pendingTripData');
+
+    if ((paymentStatus === 'success' || hasPendingPayment) && hasPendingTripData) {
+      sessionStorage.setItem('returnAfterLogin', window.location.href);
+    }
+
     return <Navigate to="/login" replace />;
   }
 

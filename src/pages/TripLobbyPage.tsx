@@ -13,6 +13,7 @@ import {
   Share2,
   Check,
   ChevronLeft,
+  ChevronRight,
   Bell,
   Navigation,
   RefreshCw,
@@ -26,6 +27,7 @@ import {
   Pause,
   Download,
   EyeOff,
+  ZoomIn,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -922,6 +924,7 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
   const [currentSlide, setCurrentSlide] = useState(0);
   const [editMode, setEditMode] = useState(false);
   const [selectedPhotos, setSelectedPhotos] = useState<string[]>([]);
+  const [enlargedItem, setEnlargedItem] = useState<MediaItem | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [musicEnabled, setMusicEnabled] = useState(true);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
@@ -992,6 +995,30 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
       }
     };
   }, [aftermovieReady, musicEnabled, isPlaying, customAudioUrl]);
+
+  // Keyboard navigation for lightbox
+  useEffect(() => {
+    if (!enlargedItem) return;
+
+    const currentItem = enlargedItem;
+
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === 'Escape') {
+        setEnlargedItem(null);
+      } else if (e.key === 'ArrowLeft') {
+        const currentIndex = media.findIndex(m => m.id === currentItem.id);
+        const prevIndex = currentIndex > 0 ? currentIndex - 1 : media.length - 1;
+        setEnlargedItem(media[prevIndex]);
+      } else if (e.key === 'ArrowRight') {
+        const currentIndex = media.findIndex(m => m.id === currentItem.id);
+        const nextIndex = currentIndex < media.length - 1 ? currentIndex + 1 : 0;
+        setEnlargedItem(media[nextIndex]);
+      }
+    }
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [enlargedItem, media]);
 
   // Handle custom audio file upload
   function handleAudioUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -1347,10 +1374,14 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
         {media.map((item) => (
           <div
             key={item.id}
-            onClick={() => editMode && togglePhotoSelection(item.id)}
-            className={`aspect-square rounded-xl overflow-hidden bg-white/5 relative group ${
-              editMode ? 'cursor-pointer' : ''
-            } ${
+            onClick={() => {
+              if (editMode) {
+                togglePhotoSelection(item.id);
+              } else {
+                setEnlargedItem(item);
+              }
+            }}
+            className={`aspect-square rounded-xl overflow-hidden bg-white/5 relative group cursor-pointer hover:ring-2 hover:ring-white/30 transition-all ${
               editMode && selectedPhotos.includes(item.id)
                 ? 'ring-4 ring-fuchsia-500 ring-offset-2 ring-offset-slate-900'
                 : ''
@@ -1360,7 +1391,12 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
               <video
                 src={item.file_url}
                 className="w-full h-full object-cover"
-                controls
+                onClick={(e) => {
+                  if (!editMode) {
+                    e.stopPropagation();
+                    setEnlargedItem(item);
+                  }
+                }}
               />
             ) : (
               <img
@@ -1378,6 +1414,12 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
                   : 'bg-black/50 border-white/50'
               }`}>
                 {selectedPhotos.includes(item.id) && <Check className="w-4 h-4" />}
+              </div>
+            )}
+            {/* Zoom icon on hover */}
+            {!editMode && (
+              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
             )}
             {/* Location indicator */}
@@ -1402,6 +1444,72 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
           </div>
         ))}
       </div>
+
+      {/* Lightbox Modal */}
+      {enlargedItem && (
+        <div
+          className="fixed inset-0 bg-black/95 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setEnlargedItem(null)}
+        >
+          <button
+            onClick={() => setEnlargedItem(null)}
+            className="absolute top-4 right-4 p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors z-10"
+          >
+            <X className="w-6 h-6" />
+          </button>
+
+          {/* Navigation arrows */}
+          {media.length > 1 && (
+            <>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const currentIndex = media.findIndex(m => m.id === enlargedItem.id);
+                  const prevIndex = currentIndex > 0 ? currentIndex - 1 : media.length - 1;
+                  setEnlargedItem(media[prevIndex]);
+                }}
+                className="absolute left-4 p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors z-10"
+              >
+                <ChevronLeft className="w-6 h-6" />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const currentIndex = media.findIndex(m => m.id === enlargedItem.id);
+                  const nextIndex = currentIndex < media.length - 1 ? currentIndex + 1 : 0;
+                  setEnlargedItem(media[nextIndex]);
+                }}
+                className="absolute right-4 p-3 bg-white/10 hover:bg-white/20 rounded-full transition-colors z-10"
+              >
+                <ChevronRight className="w-6 h-6" />
+              </button>
+            </>
+          )}
+
+          {/* Media content */}
+          <div className="max-w-5xl max-h-[85vh] w-full h-full flex items-center justify-center" onClick={(e) => e.stopPropagation()}>
+            {enlargedItem.type === 'video' ? (
+              <video
+                src={enlargedItem.file_url}
+                className="max-w-full max-h-full rounded-lg"
+                controls
+                autoPlay
+              />
+            ) : (
+              <img
+                src={enlargedItem.file_url}
+                alt=""
+                className="max-w-full max-h-full object-contain rounded-lg"
+              />
+            )}
+          </div>
+
+          {/* Image counter */}
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 px-4 py-2 rounded-full text-sm">
+            {media.findIndex(m => m.id === enlargedItem.id) + 1} / {media.length}
+          </div>
+        </div>
+      )}
 
       {/* Aftermovie Modal */}
       {showAftermovie && (
