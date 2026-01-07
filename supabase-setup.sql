@@ -115,9 +115,15 @@ CREATE TABLE IF NOT EXISTS public.trip_media (
   file_url TEXT NOT NULL,
   thumbnail_url TEXT,
   caption TEXT,
+  latitude DOUBLE PRECISION,
+  longitude DOUBLE PRECISION,
   taken_at TIMESTAMPTZ,
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
+
+-- Add columns if table already exists (run these separately if needed)
+-- ALTER TABLE public.trip_media ADD COLUMN IF NOT EXISTS latitude DOUBLE PRECISION;
+-- ALTER TABLE public.trip_media ADD COLUMN IF NOT EXISTS longitude DOUBLE PRECISION;
 
 -- After movies table
 CREATE TABLE IF NOT EXISTS public.after_movies (

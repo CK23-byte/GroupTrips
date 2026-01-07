@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Plane,
@@ -16,6 +16,14 @@ import {
   Bell,
   Navigation,
   RefreshCw,
+  Map,
+  X,
+  GripVertical,
+  Music,
+  Volume2,
+  VolumeX,
+  Play,
+  Pause,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -32,7 +40,17 @@ import Timeline from '../components/Timeline';
 import MembersList from '../components/MembersList';
 import MessagesPanel from '../components/MessagesPanel';
 
-type Tab = 'overview' | 'tickets' | 'schedule' | 'members' | 'location' | 'media' | 'messages';
+type Tab = 'overview' | 'tickets' | 'schedule' | 'members' | 'location' | 'media' | 'messages' | 'route';
+
+interface MediaItem {
+  id: string;
+  file_url: string;
+  type: string;
+  created_at: string;
+  latitude?: number;
+  longitude?: number;
+  caption?: string;
+}
 
 export default function TripLobbyPage() {
   const { tripId } = useParams<{ tripId: string }>();
@@ -272,6 +290,12 @@ export default function TripLobbyPage() {
               icon={<Camera className="w-4 h-4" />}
               label="Media"
             />
+            <TabButton
+              active={activeTab === 'route'}
+              onClick={() => setActiveTab('route')}
+              icon={<Map className="w-4 h-4" />}
+              label="Route"
+            />
           </nav>
         </div>
       </div>
@@ -316,6 +340,9 @@ export default function TripLobbyPage() {
         )}
         {activeTab === 'media' && (
           <MediaTab tripId={tripId!} />
+        )}
+        {activeTab === 'route' && (
+          <RouteTab tripId={tripId!} schedule={schedule} trip={trip} />
         )}
       </main>
     </div>
@@ -893,7 +920,7 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
 
 function MediaTab({ tripId }: { tripId: string }) {
   const { user } = useAuth();
-  const [media, setMedia] = useState<Array<{ id: string; file_url: string; type: string; created_at: string }>>([]);
+  const [media, setMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState('');
   const [showAftermovie, setShowAftermovie] = useState(false);
@@ -901,21 +928,68 @@ function MediaTab({ tripId }: { tripId: string }) {
   const [generationStep, setGenerationStep] = useState(0);
   const [aftermovieReady, setAftermovieReady] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
-  const fileInputRef = React.useRef<HTMLInputElement>(null);
+  const [editMode, setEditMode] = useState(false);
+  const [selectedPhotos, setSelectedPhotos] = useState<string[]>([]);
+  const [isPlaying, setIsPlaying] = useState(true);
+  const [musicEnabled, setMusicEnabled] = useState(true);
+  const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+
+  // Get current location for geotagging uploads
+  useEffect(() => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          setCurrentLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+        },
+        () => {
+          console.log('[MediaTab] Geolocation not available');
+        }
+      );
+    }
+  }, []);
 
   useEffect(() => {
     loadMedia();
   }, [tripId]);
 
   // Slideshow effect for aftermovie preview
+  const photos = media.filter(m => m.type === 'photo');
+  const selectedForMovie = editMode && selectedPhotos.length > 0
+    ? photos.filter(p => selectedPhotos.includes(p.id))
+    : photos;
+
   useEffect(() => {
-    if (aftermovieReady && media.length > 0) {
+    if (aftermovieReady && selectedForMovie.length > 0 && isPlaying) {
       const interval = setInterval(() => {
-        setCurrentSlide((prev) => (prev + 1) % media.length);
+        setCurrentSlide((prev) => (prev + 1) % selectedForMovie.length);
       }, 3000);
       return () => clearInterval(interval);
     }
-  }, [aftermovieReady, media.length]);
+  }, [aftermovieReady, selectedForMovie.length, isPlaying]);
+
+  // Audio setup for aftermovie
+  useEffect(() => {
+    if (aftermovieReady && musicEnabled) {
+      // Create audio context for background music visualization
+      if (!audioRef.current) {
+        audioRef.current = new Audio('https://cdn.pixabay.com/audio/2022/10/25/audio_b3a3f2a58c.mp3');
+        audioRef.current.loop = true;
+        audioRef.current.volume = 0.3;
+      }
+      if (isPlaying) {
+        audioRef.current.play().catch(() => console.log('Audio autoplay blocked'));
+      } else {
+        audioRef.current.pause();
+      }
+    }
+    return () => {
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+    };
+  }, [aftermovieReady, musicEnabled, isPlaying]);
 
   async function loadMedia() {
     console.log('[MediaTab] Loading media for trip:', tripId);
@@ -972,12 +1046,14 @@ function MediaTab({ tripId }: { tripId: string }) {
 
         console.log('[MediaTab] Public URL:', publicUrl);
 
-        // Save to database
+        // Save to database with geolocation
         const { error: dbError } = await supabase.from('trip_media').insert({
           trip_id: tripId,
           uploaded_by: user?.id,
           file_url: publicUrl,
           type: isVideo ? 'video' : 'photo',
+          latitude: currentLocation?.lat,
+          longitude: currentLocation?.lng,
         });
 
         if (dbError) {
@@ -999,9 +1075,21 @@ function MediaTab({ tripId }: { tripId: string }) {
     }
   }
 
+  function togglePhotoSelection(photoId: string) {
+    setSelectedPhotos(prev =>
+      prev.includes(photoId)
+        ? prev.filter(id => id !== photoId)
+        : [...prev, photoId]
+    );
+  }
+
   async function generateAftermovie() {
-    if (media.length < 3) {
-      setUploadError('You need at least 3 photos to generate an aftermovie');
+    const photosToUse = editMode && selectedPhotos.length > 0
+      ? photos.filter(p => selectedPhotos.includes(p.id))
+      : photos;
+
+    if (photosToUse.length < 3) {
+      setUploadError('You need at least 3 photos to generate an aftermovie. Select more photos or add more to the gallery.');
       return;
     }
 
@@ -1009,6 +1097,7 @@ function MediaTab({ tripId }: { tripId: string }) {
     setShowAftermovie(true);
     setAftermovieReady(false);
     setCurrentSlide(0);
+    setIsPlaying(true);
 
     // Simulate aftermovie generation steps
     for (let i = 0; i < generationSteps.length; i++) {
@@ -1018,6 +1107,16 @@ function MediaTab({ tripId }: { tripId: string }) {
 
     setGenerating(false);
     setAftermovieReady(true);
+  }
+
+  function closeAftermovie() {
+    setShowAftermovie(false);
+    setAftermovieReady(false);
+    setIsPlaying(false);
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
+    }
   }
 
   const generationSteps = [
@@ -1076,12 +1175,17 @@ function MediaTab({ tripId }: { tripId: string }) {
   return (
     <div className="space-y-6">
       {/* Header with actions */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
           <h2 className="text-xl font-semibold">Media Gallery</h2>
-          <p className="text-sm text-white/50">{media.length} files</p>
+          <p className="text-sm text-white/50">
+            {photos.length} photos, {media.length - photos.length} videos
+            {currentLocation && (
+              <span className="ml-2 text-green-400">📍 Location enabled</span>
+            )}
+          </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           <input
             ref={fileInputRef}
             type="file"
@@ -1105,19 +1209,42 @@ function MediaTab({ tripId }: { tripId: string }) {
               'Add Media'
             )}
           </button>
-          {media.length >= 3 && (
+          {photos.length >= 1 && (
+            <button
+              onClick={() => {
+                setEditMode(!editMode);
+                if (editMode) setSelectedPhotos([]);
+              }}
+              className={`btn-secondary flex items-center gap-2 ${editMode ? 'ring-2 ring-fuchsia-500' : ''}`}
+            >
+              <GripVertical className="w-4 h-4" />
+              {editMode ? 'Done Editing' : 'Edit Selection'}
+            </button>
+          )}
+          {photos.length >= 3 && (
             <button
               onClick={generateAftermovie}
               className="btn-primary flex items-center gap-2"
             >
-              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <polygon points="5 3 19 12 5 21 5 3" />
-              </svg>
-              Generate Aftermovie
+              <Play className="w-4 h-4" />
+              {editMode && selectedPhotos.length > 0
+                ? `Create with ${selectedPhotos.length} photos`
+                : 'Generate Aftermovie'}
             </button>
           )}
         </div>
       </div>
+
+      {/* Edit mode instructions */}
+      {editMode && (
+        <div className="bg-fuchsia-500/20 border border-fuchsia-500/50 rounded-xl p-4 text-sm">
+          <p className="font-medium mb-1">✨ Edit Mode Active</p>
+          <p className="text-white/70">
+            Click on photos to select/deselect them for your aftermovie.
+            {selectedPhotos.length > 0 && ` Selected: ${selectedPhotos.length} photos`}
+          </p>
+        </div>
+      )}
 
       {/* Error message */}
       {uploadError && (
@@ -1131,7 +1258,14 @@ function MediaTab({ tripId }: { tripId: string }) {
         {media.map((item) => (
           <div
             key={item.id}
-            className="aspect-square rounded-xl overflow-hidden bg-white/5 relative group"
+            onClick={() => editMode && item.type === 'photo' && togglePhotoSelection(item.id)}
+            className={`aspect-square rounded-xl overflow-hidden bg-white/5 relative group ${
+              editMode && item.type === 'photo' ? 'cursor-pointer' : ''
+            } ${
+              editMode && selectedPhotos.includes(item.id)
+                ? 'ring-4 ring-fuchsia-500 ring-offset-2 ring-offset-slate-900'
+                : ''
+            }`}
           >
             {item.type === 'video' ? (
               <video
@@ -1147,12 +1281,35 @@ function MediaTab({ tripId }: { tripId: string }) {
                 loading="lazy"
               />
             )}
+            {/* Selection indicator */}
+            {editMode && item.type === 'photo' && (
+              <div className={`absolute top-2 right-2 w-6 h-6 rounded-full border-2 flex items-center justify-center ${
+                selectedPhotos.includes(item.id)
+                  ? 'bg-fuchsia-500 border-fuchsia-500'
+                  : 'bg-black/50 border-white/50'
+              }`}>
+                {selectedPhotos.includes(item.id) && <Check className="w-4 h-4" />}
+              </div>
+            )}
+            {/* Location indicator */}
+            {item.latitude && item.longitude && (
+              <div className="absolute top-2 left-2 bg-green-500/80 px-2 py-1 rounded-full text-xs flex items-center gap-1">
+                <MapPin className="w-3 h-3" />
+              </div>
+            )}
+            {/* Date */}
             <div className="absolute bottom-2 left-2 text-xs text-white/50 bg-black/50 px-2 py-1 rounded">
               {new Date(item.created_at).toLocaleDateString('en-US', {
                 month: 'short',
                 day: 'numeric',
               })}
             </div>
+            {/* Type badge for videos */}
+            {item.type === 'video' && (
+              <div className="absolute bottom-2 right-2 bg-blue-500/80 px-2 py-1 rounded text-xs">
+                Video
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -1186,12 +1343,12 @@ function MediaTab({ tripId }: { tripId: string }) {
               <>
                 <h2 className="text-2xl font-bold mb-2">Your Aftermovie</h2>
                 <p className="text-white/60 mb-4">
-                  {media.length} memories compiled with music sync
+                  {selectedForMovie.length} photos compiled with music sync
                 </p>
 
                 {/* Slideshow Preview */}
                 <div className="aspect-video bg-black rounded-xl mb-4 relative overflow-hidden">
-                  {media.filter(m => m.type === 'photo').map((item, index) => (
+                  {selectedForMovie.map((item, index) => (
                     <img
                       key={item.id}
                       src={item.file_url}
@@ -1203,37 +1360,65 @@ function MediaTab({ tripId }: { tripId: string }) {
                   ))}
 
                   {/* Music visualization overlay */}
-                  <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-center pb-3">
-                    <div className="flex items-end gap-1">
-                      {[...Array(20)].map((_, i) => (
-                        <div
-                          key={i}
-                          className="w-1 bg-gradient-to-t from-fuchsia-500 to-blue-500 rounded-full animate-pulse"
-                          style={{
-                            height: `${Math.random() * 24 + 8}px`,
-                            animationDelay: `${i * 0.05}s`,
-                            animationDuration: '0.5s'
-                          }}
-                        />
-                      ))}
+                  {musicEnabled && isPlaying && (
+                    <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-center pb-3">
+                      <div className="flex items-end gap-1">
+                        {[...Array(20)].map((_, i) => (
+                          <div
+                            key={i}
+                            className="w-1 bg-gradient-to-t from-fuchsia-500 to-blue-500 rounded-full animate-pulse"
+                            style={{
+                              height: `${Math.random() * 24 + 8}px`,
+                              animationDelay: `${i * 0.05}s`,
+                              animationDuration: '0.5s'
+                            }}
+                          />
+                        ))}
+                      </div>
                     </div>
+                  )}
+
+                  {/* Playback controls overlay */}
+                  <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => setIsPlaying(!isPlaying)}
+                      className="w-16 h-16 rounded-full bg-black/50 flex items-center justify-center hover:bg-black/70 transition-colors"
+                    >
+                      {isPlaying ? (
+                        <Pause className="w-8 h-8" />
+                      ) : (
+                        <Play className="w-8 h-8 ml-1" />
+                      )}
+                    </button>
                   </div>
 
-                  {/* Play indicator */}
-                  <div className="absolute top-4 left-4 flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full">
-                    <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-                    <span className="text-xs font-medium">Playing</span>
-                  </div>
-
-                  {/* Slide counter */}
-                  <div className="absolute top-4 right-4 bg-black/50 px-3 py-1.5 rounded-full text-xs">
-                    {currentSlide + 1} / {media.filter(m => m.type === 'photo').length}
+                  {/* Top controls */}
+                  <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
+                    <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full">
+                      <div className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-red-500 animate-pulse' : 'bg-gray-500'}`} />
+                      <span className="text-xs font-medium">{isPlaying ? 'Playing' : 'Paused'}</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() => setMusicEnabled(!musicEnabled)}
+                        className="bg-black/50 p-2 rounded-full hover:bg-black/70 transition-colors"
+                      >
+                        {musicEnabled ? (
+                          <Volume2 className="w-4 h-4" />
+                        ) : (
+                          <VolumeX className="w-4 h-4" />
+                        )}
+                      </button>
+                      <div className="bg-black/50 px-3 py-1.5 rounded-full text-xs">
+                        {currentSlide + 1} / {selectedForMovie.length}
+                      </div>
+                    </div>
                   </div>
                 </div>
 
                 {/* Thumbnail strip */}
                 <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-                  {media.filter(m => m.type === 'photo').slice(0, 8).map((item, index) => (
+                  {selectedForMovie.slice(0, 10).map((item, index) => (
                     <button
                       key={item.id}
                       onClick={() => setCurrentSlide(index)}
@@ -1244,19 +1429,22 @@ function MediaTab({ tripId }: { tripId: string }) {
                       <img src={item.file_url} alt="" className="w-full h-full object-cover" />
                     </button>
                   ))}
-                  {media.filter(m => m.type === 'photo').length > 8 && (
+                  {selectedForMovie.length > 10 && (
                     <div className="flex-shrink-0 w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-sm text-white/50">
-                      +{media.filter(m => m.type === 'photo').length - 8}
+                      +{selectedForMovie.length - 10}
                     </div>
                   )}
                 </div>
 
+                {/* Music info */}
+                <div className="flex items-center justify-center gap-2 mb-4 text-sm text-white/60">
+                  <Music className="w-4 h-4" />
+                  <span>Inspiring Journey - Background Music</span>
+                </div>
+
                 <div className="flex gap-3">
                   <button
-                    onClick={() => {
-                      setShowAftermovie(false);
-                      setAftermovieReady(false);
-                    }}
+                    onClick={closeAftermovie}
                     className="btn-secondary flex-1"
                   >
                     Close
@@ -1264,8 +1452,8 @@ function MediaTab({ tripId }: { tripId: string }) {
                   <button
                     className="btn-primary flex-1 flex items-center justify-center gap-2"
                     onClick={() => {
-                      // For now, show a message that full video export requires backend
-                      setUploadError('Video export requires a video processing server. Slideshow preview shown instead.');
+                      // Download as image slideshow (zip of images)
+                      setUploadError('Full video export coming soon! For now, enjoy the slideshow preview with music.');
                     }}
                   >
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -1278,6 +1466,307 @@ function MediaTab({ tripId }: { tripId: string }) {
                 </div>
               </>
             ) : null}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+type RouteItem = (MediaItem & { itemType: 'media'; lat?: number; lng?: number }) | (ScheduleItem & { itemType: 'schedule'; lat: number; lng: number });
+
+// Route Tab - Shows trip route with schedule waypoints and media pins
+function RouteTab({ tripId, schedule, trip }: { tripId: string; schedule: ScheduleItem[]; trip: Trip | null }) {
+  const [media, setMedia] = useState<MediaItem[]>([]);
+  const [selectedItem, setSelectedItem] = useState<RouteItem | null>(null);
+
+  useEffect(() => {
+    loadMediaWithLocation();
+  }, [tripId]);
+
+  async function loadMediaWithLocation() {
+    const { data } = await supabase
+      .from('trip_media')
+      .select('*')
+      .eq('trip_id', tripId)
+      .not('latitude', 'is', null)
+      .order('created_at', { ascending: true });
+
+    if (data) {
+      setMedia(data);
+    }
+  }
+
+  // Calculate trip progress (0-100%)
+  const now = new Date();
+  const departureTime = trip?.departure_time ? new Date(trip.departure_time) : null;
+  const tripStarted = departureTime && now >= departureTime;
+
+  // Get schedule items with locations (mock coordinates for demo)
+  const scheduleWithLocations = schedule.map((item, index) => ({
+    ...item,
+    // Generate mock coordinates along a path for visualization
+    lat: 52.3676 + (index * 0.01),
+    lng: 4.9041 + (index * 0.015),
+  }));
+
+  // Combine schedule and media into timeline
+  const allItems: RouteItem[] = [
+    ...scheduleWithLocations.map(s => ({ ...s, itemType: 'schedule' as const })),
+    ...media.map(m => ({ ...m, itemType: 'media' as const, lat: m.latitude, lng: m.longitude })),
+  ].sort((a, b) => {
+    const dateA = 'start_time' in a ? new Date(a.start_time) : new Date(a.created_at);
+    const dateB = 'start_time' in b ? new Date(b.start_time) : new Date(b.created_at);
+    return dateA.getTime() - dateB.getTime();
+  });
+
+  // Filter items based on trip progress
+  const visibleItems = tripStarted
+    ? allItems.filter(item => {
+        const itemDate = 'start_time' in item ? new Date(item.start_time) : new Date(item.created_at);
+        return itemDate <= now;
+      })
+    : [];
+
+  return (
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-xl font-semibold">Trip Route</h2>
+          <p className="text-sm text-white/50">
+            {tripStarted
+              ? `${visibleItems.length} waypoints revealed`
+              : 'Route will be revealed as the trip progresses'}
+          </p>
+        </div>
+      </div>
+
+      {!tripStarted ? (
+        <div className="card p-12 text-center">
+          <Map className="w-16 h-16 text-white/20 mx-auto mb-4" />
+          <h3 className="text-xl font-semibold mb-2">Route Not Yet Available</h3>
+          <p className="text-white/50 mb-4">
+            The trip route will be revealed progressively once the trip starts.
+            <br />
+            Check back after {departureTime?.toLocaleDateString('en-US', {
+              month: 'long',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })}
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Map placeholder - would use Mapbox/Google Maps in production */}
+          <div className="lg:col-span-2 card p-0 overflow-hidden" style={{ height: '500px' }}>
+            <div className="w-full h-full bg-slate-700 relative">
+              {/* Stylized map background */}
+              <div className="absolute inset-0 opacity-30">
+                <svg className="w-full h-full" viewBox="0 0 400 300">
+                  {/* Grid lines */}
+                  {[...Array(10)].map((_, i) => (
+                    <g key={i}>
+                      <line x1={i * 40} y1="0" x2={i * 40} y2="300" stroke="white" strokeWidth="0.5" opacity="0.2" />
+                      <line x1="0" y1={i * 30} x2="400" y2={i * 30} stroke="white" strokeWidth="0.5" opacity="0.2" />
+                    </g>
+                  ))}
+                </svg>
+              </div>
+
+              {/* Route line */}
+              <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 300">
+                <defs>
+                  <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stopColor="#8b5cf6" />
+                    <stop offset="100%" stopColor="#3b82f6" />
+                  </linearGradient>
+                </defs>
+                <path
+                  d={`M 50 250 ${visibleItems.map((_, i) =>
+                    `L ${50 + (i + 1) * (300 / Math.max(allItems.length, 1))} ${250 - (i + 1) * (200 / Math.max(allItems.length, 1))}`
+                  ).join(' ')}`}
+                  stroke="url(#routeGradient)"
+                  strokeWidth="4"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="drop-shadow-lg"
+                />
+
+                {/* Waypoint markers */}
+                {visibleItems.map((item, index) => {
+                  const x = 50 + (index + 1) * (300 / Math.max(allItems.length, 1));
+                  const y = 250 - (index + 1) * (200 / Math.max(allItems.length, 1));
+                  const isMedia = item.itemType === 'media';
+
+                  return (
+                    <g key={item.id} onClick={() => setSelectedItem(item)} className="cursor-pointer">
+                      <circle
+                        cx={x}
+                        cy={y}
+                        r={isMedia ? 12 : 8}
+                        fill={isMedia ? '#22c55e' : '#8b5cf6'}
+                        className="drop-shadow-lg"
+                      />
+                      {isMedia && (
+                        <text x={x} y={y + 4} textAnchor="middle" fill="white" fontSize="10">📷</text>
+                      )}
+                      {!isMedia && (
+                        <circle cx={x} cy={y} r={4} fill="white" />
+                      )}
+                    </g>
+                  );
+                })}
+
+                {/* Start marker */}
+                <g>
+                  <circle cx="50" cy="250" r="10" fill="#22c55e" className="drop-shadow-lg" />
+                  <text x="50" y="254" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">S</text>
+                </g>
+              </svg>
+
+              {/* Legend */}
+              <div className="absolute bottom-4 left-4 bg-black/50 backdrop-blur-sm rounded-lg p-3">
+                <div className="flex items-center gap-4 text-xs">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-purple-500" />
+                    <span>Schedule</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full bg-green-500" />
+                    <span>Photo/Video</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Progress indicator */}
+              <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm rounded-lg px-4 py-2">
+                <p className="text-xs text-white/60">Trip Progress</p>
+                <p className="text-lg font-bold">
+                  {Math.round((visibleItems.length / Math.max(allItems.length, 1)) * 100)}%
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Timeline sidebar */}
+          <div className="card p-4 max-h-[500px] overflow-y-auto">
+            <h3 className="font-semibold mb-4">Journey Timeline</h3>
+            <div className="space-y-4">
+              {visibleItems.length === 0 ? (
+                <p className="text-white/50 text-sm">No waypoints revealed yet</p>
+              ) : (
+                visibleItems.map((item, index) => (
+                  <div
+                    key={item.id}
+                    onClick={() => setSelectedItem(item)}
+                    className={`flex gap-3 p-3 rounded-lg cursor-pointer transition-colors ${
+                      selectedItem?.id === item.id ? 'bg-white/10' : 'hover:bg-white/5'
+                    }`}
+                  >
+                    <div className="flex-shrink-0">
+                      {item.itemType === 'media' ? (
+                        <div className="w-12 h-12 rounded-lg overflow-hidden">
+                          <img src={(item as MediaItem).file_url} alt="" className="w-full h-full object-cover" />
+                        </div>
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                          <MapPin className="w-5 h-5 text-purple-400" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate">
+                        {item.itemType === 'schedule'
+                          ? (item as ScheduleItem).title
+                          : 'Photo taken'}
+                      </p>
+                      <p className="text-xs text-white/50">
+                        {new Date(
+                          item.itemType === 'schedule'
+                            ? (item as ScheduleItem).start_time
+                            : (item as MediaItem).created_at
+                        ).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })}
+                      </p>
+                      {item.itemType === 'schedule' && (item as ScheduleItem).location && (
+                        <p className="text-xs text-white/40 truncate mt-1">
+                          📍 {(item as ScheduleItem).location}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex-shrink-0 text-xs text-white/30">
+                      #{index + 1}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Selected item detail modal */}
+      {selectedItem && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setSelectedItem(null)}>
+          <div className="bg-slate-800 border border-white/10 rounded-2xl p-6 max-w-lg w-full" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">
+                {selectedItem.itemType === 'schedule'
+                  ? (selectedItem as ScheduleItem).title
+                  : 'Photo'}
+              </h3>
+              <button onClick={() => setSelectedItem(null)} className="p-2 hover:bg-white/10 rounded-full">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {selectedItem.itemType === 'media' && (
+              <img
+                src={(selectedItem as MediaItem).file_url}
+                alt=""
+                className="w-full rounded-xl mb-4"
+              />
+            )}
+
+            <div className="space-y-2 text-sm">
+              <p className="text-white/60">
+                <Clock className="w-4 h-4 inline mr-2" />
+                {new Date(
+                  selectedItem.itemType === 'schedule'
+                    ? (selectedItem as ScheduleItem).start_time
+                    : (selectedItem as MediaItem).created_at
+                ).toLocaleString('en-US', {
+                  weekday: 'long',
+                  month: 'long',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })}
+              </p>
+              {selectedItem.itemType === 'schedule' && (selectedItem as ScheduleItem).location && (
+                <p className="text-white/60">
+                  <MapPin className="w-4 h-4 inline mr-2" />
+                  {(selectedItem as ScheduleItem).location}
+                </p>
+              )}
+              {selectedItem.itemType === 'media' && (selectedItem as MediaItem).latitude && (
+                <p className="text-white/60">
+                  <MapPin className="w-4 h-4 inline mr-2" />
+                  {(selectedItem as MediaItem).latitude?.toFixed(4)}, {(selectedItem as MediaItem).longitude?.toFixed(4)}
+                </p>
+              )}
+              {selectedItem.itemType === 'schedule' && (selectedItem as ScheduleItem).description && (
+                <p className="text-white/80 mt-4">
+                  {(selectedItem as ScheduleItem).description}
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}
