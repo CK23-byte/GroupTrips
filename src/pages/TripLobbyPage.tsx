@@ -24,6 +24,7 @@ import {
   VolumeX,
   Play,
   Pause,
+  Download,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -342,7 +343,7 @@ export default function TripLobbyPage() {
           />
         )}
         {activeTab === 'media' && (
-          <MediaTab tripId={tripId!} />
+          <MediaTab tripId={tripId!} isAdmin={isAdmin} />
         )}
         {activeTab === 'route' && (
           <RouteTab tripId={tripId!} schedule={schedule} trip={trip} />
@@ -898,7 +899,7 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
   );
 }
 
-function MediaTab({ tripId }: { tripId: string }) {
+function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
   const { user } = useAuth();
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -1120,6 +1121,80 @@ function MediaTab({ tripId }: { tripId: string }) {
     }
   }
 
+  // Export functionality - download images or share
+  async function handleExportAftermovie() {
+    const mediaToExport = editMode && selectedPhotos.length > 0
+      ? allMedia.filter(p => selectedPhotos.includes(p.id))
+      : allMedia;
+
+    if (mediaToExport.length === 0) {
+      setUploadError('No media to export');
+      return;
+    }
+
+    // Check if Web Share API is available with files
+    if (navigator.share && navigator.canShare) {
+      try {
+        // Try to share the slideshow
+        const shareData = {
+          title: 'GroupTrips Aftermovie',
+          text: `Check out our trip memories! ${mediaToExport.length} photos/videos.`,
+          url: window.location.href,
+        };
+
+        if (navigator.canShare(shareData)) {
+          await navigator.share(shareData);
+          return;
+        }
+      } catch (err) {
+        console.log('Web Share cancelled or failed:', err);
+      }
+    }
+
+    // Fallback: Download images sequentially
+    setUploadError('Downloading images...');
+
+    for (let i = 0; i < mediaToExport.length; i++) {
+      const item = mediaToExport[i];
+      try {
+        const response = await fetch(item.file_url);
+        const blob = await response.blob();
+        const ext = item.type === 'video' ? 'mp4' : 'jpg';
+        const filename = `grouptrips-memory-${String(i + 1).padStart(3, '0')}.${ext}`;
+
+        // Create download link
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        // Small delay between downloads to prevent browser blocking
+        await new Promise(r => setTimeout(r, 300));
+      } catch (err) {
+        console.error('Failed to download:', item.file_url, err);
+      }
+    }
+
+    // Download audio if available
+    if (customAudioFile) {
+      const audioUrl = URL.createObjectURL(customAudioFile);
+      const a = document.createElement('a');
+      a.href = audioUrl;
+      a.download = `grouptrips-audio.${customAudioFile.name.split('.').pop()}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(audioUrl);
+    }
+
+    setUploadError(`Downloaded ${mediaToExport.length} files${customAudioFile ? ' + audio' : ''}!`);
+    setTimeout(() => setUploadError(''), 3000);
+  }
+
   const generationSteps = [
     'Collecting media files...',
     'Analyzing photo compositions...',
@@ -1210,7 +1285,8 @@ function MediaTab({ tripId }: { tripId: string }) {
               'Add Media'
             )}
           </button>
-          {allMedia.length >= 1 && (
+          {/* Admin-only: Edit selection for aftermovie */}
+          {isAdmin && allMedia.length >= 1 && (
             <button
               onClick={() => {
                 setEditMode(!editMode);
@@ -1222,7 +1298,8 @@ function MediaTab({ tripId }: { tripId: string }) {
               {editMode ? 'Done Editing' : 'Edit Selection'}
             </button>
           )}
-          {allMedia.length >= 3 && (
+          {/* Admin-only: Generate aftermovie */}
+          {isAdmin && allMedia.length >= 3 && (
             <button
               onClick={generateAftermovie}
               className="btn-primary flex items-center gap-2"
@@ -1507,17 +1584,10 @@ function MediaTab({ tripId }: { tripId: string }) {
                   </button>
                   <button
                     className="btn-primary flex-1 flex items-center justify-center gap-2"
-                    onClick={() => {
-                      // Download as image slideshow (zip of images)
-                      setUploadError('Full video export coming soon! For now, enjoy the slideshow preview with music.');
-                    }}
+                    onClick={handleExportAftermovie}
                   >
-                    <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                      <polyline points="7 10 12 15 17 10" />
-                      <line x1="12" y1="15" x2="12" y2="3" />
-                    </svg>
-                    Export Video
+                    <Download className="w-4 h-4" />
+                    Download All
                   </button>
                 </div>
               </>

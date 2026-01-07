@@ -15,6 +15,7 @@ export interface Trip {
   lobby_code: string;
   admin_id: string;
   departure_time: string;
+  return_time?: string; // End date of the trip
   destination?: string; // Hidden until reveal time
   cover_image_url?: string;
   status: 'planning' | 'active' | 'completed';
