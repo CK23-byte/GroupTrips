@@ -39,6 +39,7 @@ import TicketReveal from '../components/TicketReveal';
 import Timeline from '../components/Timeline';
 import MembersList from '../components/MembersList';
 import MessagesPanel from '../components/MessagesPanel';
+import GoogleMapComponent from '../components/GoogleMap';
 
 type Tab = 'overview' | 'tickets' | 'schedule' | 'members' | 'location' | 'media' | 'messages' | 'route';
 
@@ -830,41 +831,18 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
         )}
       </div>
 
-      {/* Map placeholder */}
+      {/* Interactive Map */}
       <div className="card p-6">
-        <div className="aspect-video bg-slate-800 rounded-xl overflow-hidden relative">
-          {/* Map would be rendered here with a library like Mapbox or Google Maps */}
-          <div className="absolute inset-0 flex flex-col items-center justify-center text-center p-8">
-            <MapPin className="w-16 h-16 text-white/20 mb-4" />
-            <p className="text-white/60 mb-2">Interactive Map</p>
-            <p className="text-sm text-white/40">
-              Connect your Mapbox or Google Maps API key to see live member locations on an interactive map
-            </p>
-          </div>
-
-          {/* Member markers (simulated) */}
-          {locations.length > 0 && (
-            <div className="absolute inset-0 pointer-events-none">
-              {locations.map((loc, index) => (
-                <div
-                  key={loc.user_id}
-                  className="absolute"
-                  style={{
-                    left: `${20 + (index * 15)}%`,
-                    top: `${30 + (index * 10)}%`,
-                  }}
-                >
-                  <div className="relative">
-                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center text-xs font-bold border-2 border-white shadow-lg">
-                      {loc.user?.name?.charAt(0) || '?'}
-                    </div>
-                    <span className="absolute -bottom-1 -right-1 w-3 h-3 rounded-full bg-green-400 border-2 border-white" />
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <GoogleMapComponent
+          memberLocations={locations.map(loc => ({
+            user_id: loc.user_id,
+            latitude: loc.latitude,
+            longitude: loc.longitude,
+            updated_at: loc.updated_at,
+            user: loc.user ? { name: loc.user.name } : undefined,
+          }))}
+          height="400px"
+        />
 
         {lastUpdate && (
           <div className="flex items-center justify-between mt-4 text-sm text-white/40">
@@ -1636,94 +1614,49 @@ function RouteTab({ tripId, schedule, trip }: { tripId: string; schedule: Schedu
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Map placeholder - would use Mapbox/Google Maps in production */}
-          <div className="lg:col-span-2 card p-0 overflow-hidden" style={{ height: '500px' }}>
-            <div className="w-full h-full bg-slate-700 relative">
-              {/* Stylized map background */}
-              <div className="absolute inset-0 opacity-30">
-                <svg className="w-full h-full" viewBox="0 0 400 300">
-                  {/* Grid lines */}
-                  {[...Array(10)].map((_, i) => (
-                    <g key={i}>
-                      <line x1={i * 40} y1="0" x2={i * 40} y2="300" stroke="white" strokeWidth="0.5" opacity="0.2" />
-                      <line x1="0" y1={i * 30} x2="400" y2={i * 30} stroke="white" strokeWidth="0.5" opacity="0.2" />
-                    </g>
-                  ))}
-                </svg>
-              </div>
+          {/* Interactive Map with Route */}
+          <div className="lg:col-span-2 card p-0 overflow-hidden relative">
+            <GoogleMapComponent
+              activityLocations={visibleItems
+                .filter(item => item.lat && item.lng)
+                .map(item => ({
+                  id: item.id,
+                  title: item.itemType === 'schedule' ? (item as ScheduleItem).title : 'Photo/Video',
+                  latitude: item.lat!,
+                  longitude: item.lng!,
+                  type: item.itemType === 'media' ? 'media' : (item as ScheduleItem).type,
+                  start_time: item.itemType === 'schedule' ? (item as ScheduleItem).start_time : item.created_at,
+                  isRevealed: true,
+                }))}
+              showRoute={true}
+              height="500px"
+              onMarkerClick={(loc) => {
+                if ('id' in loc) {
+                  const found = visibleItems.find(v => v.id === loc.id);
+                  if (found) setSelectedItem(found);
+                }
+              }}
+            />
 
-              {/* Route line */}
-              <svg className="absolute inset-0 w-full h-full" viewBox="0 0 400 300">
-                <defs>
-                  <linearGradient id="routeGradient" x1="0%" y1="0%" x2="100%" y2="0%">
-                    <stop offset="0%" stopColor="#8b5cf6" />
-                    <stop offset="100%" stopColor="#3b82f6" />
-                  </linearGradient>
-                </defs>
-                <path
-                  d={`M 50 250 ${visibleItems.map((_, i) =>
-                    `L ${50 + (i + 1) * (300 / Math.max(allItems.length, 1))} ${250 - (i + 1) * (200 / Math.max(allItems.length, 1))}`
-                  ).join(' ')}`}
-                  stroke="url(#routeGradient)"
-                  strokeWidth="4"
-                  fill="none"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className="drop-shadow-lg"
-                />
+            {/* Progress indicator overlay */}
+            <div className="absolute top-4 left-4 bg-black/70 backdrop-blur-sm rounded-lg px-4 py-2 z-10">
+              <p className="text-xs text-white/60">Trip Progress</p>
+              <p className="text-lg font-bold">
+                {Math.round((visibleItems.length / Math.max(allItems.length, 1)) * 100)}%
+              </p>
+            </div>
 
-                {/* Waypoint markers */}
-                {visibleItems.map((item, index) => {
-                  const x = 50 + (index + 1) * (300 / Math.max(allItems.length, 1));
-                  const y = 250 - (index + 1) * (200 / Math.max(allItems.length, 1));
-                  const isMedia = item.itemType === 'media';
-
-                  return (
-                    <g key={item.id} onClick={() => setSelectedItem(item)} className="cursor-pointer">
-                      <circle
-                        cx={x}
-                        cy={y}
-                        r={isMedia ? 12 : 8}
-                        fill={isMedia ? '#22c55e' : '#8b5cf6'}
-                        className="drop-shadow-lg"
-                      />
-                      {isMedia && (
-                        <text x={x} y={y + 4} textAnchor="middle" fill="white" fontSize="10">📷</text>
-                      )}
-                      {!isMedia && (
-                        <circle cx={x} cy={y} r={4} fill="white" />
-                      )}
-                    </g>
-                  );
-                })}
-
-                {/* Start marker */}
-                <g>
-                  <circle cx="50" cy="250" r="10" fill="#22c55e" className="drop-shadow-lg" />
-                  <text x="50" y="254" textAnchor="middle" fill="white" fontSize="12" fontWeight="bold">S</text>
-                </g>
-              </svg>
-
-              {/* Legend */}
-              <div className="absolute bottom-4 left-4 bg-black/50 backdrop-blur-sm rounded-lg p-3">
-                <div className="flex items-center gap-4 text-xs">
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-purple-500" />
-                    <span>Schedule</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <div className="w-3 h-3 rounded-full bg-green-500" />
-                    <span>Photo/Video</span>
-                  </div>
+            {/* Legend */}
+            <div className="absolute bottom-4 left-4 bg-black/70 backdrop-blur-sm rounded-lg p-3 z-10">
+              <div className="flex items-center gap-4 text-xs">
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-purple-500" />
+                  <span>Activity</span>
                 </div>
-              </div>
-
-              {/* Progress indicator */}
-              <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-sm rounded-lg px-4 py-2">
-                <p className="text-xs text-white/60">Trip Progress</p>
-                <p className="text-lg font-bold">
-                  {Math.round((visibleItems.length / Math.max(allItems.length, 1)) * 100)}%
-                </p>
+                <div className="flex items-center gap-2">
+                  <div className="w-3 h-3 rounded-full bg-teal-500" />
+                  <span>Photo/Video</span>
+                </div>
               </div>
             </div>
           </div>
