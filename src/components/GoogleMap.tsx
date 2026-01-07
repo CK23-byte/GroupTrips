@@ -1,6 +1,59 @@
 import { useCallback, useState, useRef, useEffect } from 'react';
-import { GoogleMap, useJsApiLoader, Marker, InfoWindow, Polyline } from '@react-google-maps/api';
+import { GoogleMap, useJsApiLoader, Marker, InfoWindow, Polyline, OverlayView } from '@react-google-maps/api';
 import { MapPin, User, Plane, Camera, AlertTriangle } from 'lucide-react';
+
+// Custom photo marker component
+function PhotoMarker({
+  position,
+  photoUrl,
+  onClick,
+  isSelected,
+}: {
+  position: { lat: number; lng: number };
+  photoUrl: string;
+  onClick?: () => void;
+  isSelected?: boolean;
+}) {
+  return (
+    <OverlayView
+      position={position}
+      mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+      getPixelPositionOffset={(width, height) => ({
+        x: -(width / 2),
+        y: -(height / 2),
+      })}
+    >
+      <div
+        onClick={onClick}
+        className={`cursor-pointer transition-transform hover:scale-110 ${isSelected ? 'scale-125 z-10' : ''}`}
+        style={{
+          width: isSelected ? '64px' : '48px',
+          height: isSelected ? '64px' : '48px',
+        }}
+      >
+        <div
+          className={`w-full h-full rounded-xl overflow-hidden border-3 shadow-lg ${
+            isSelected ? 'border-blue-400' : 'border-white'
+          }`}
+          style={{
+            backgroundImage: `url(${photoUrl})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
+        />
+        {/* Arrow pointing down */}
+        <div
+          className={`w-0 h-0 mx-auto -mt-1 ${isSelected ? 'border-l-8 border-r-8 border-t-8' : 'border-l-6 border-r-6 border-t-6'}`}
+          style={{
+            borderLeftColor: 'transparent',
+            borderRightColor: 'transparent',
+            borderTopColor: isSelected ? '#60a5fa' : 'white',
+          }}
+        />
+      </div>
+    </OverlayView>
+  );
+}
 
 interface MemberLocation {
   user_id: string;
@@ -18,6 +71,7 @@ interface ActivityLocation {
   type: 'travel' | 'activity' | 'meal' | 'accommodation' | 'free_time' | 'meeting' | 'media';
   start_time?: string;
   isRevealed?: boolean;
+  photoUrl?: string; // URL of photo to show as marker
 }
 
 interface GoogleMapComponentProps {
@@ -417,6 +471,24 @@ export default function GoogleMapComponent({
             return null;
           }
 
+          // Use photo marker if photo URL is available
+          if (activity.photoUrl) {
+            return (
+              <PhotoMarker
+                key={activity.id}
+                position={{ lat: activity.latitude, lng: activity.longitude }}
+                photoUrl={activity.photoUrl}
+                isSelected={selectedActivity?.id === activity.id}
+                onClick={() => {
+                  setSelectedActivity(activity);
+                  setSelectedMember(null);
+                  onMarkerClick?.(activity);
+                }}
+              />
+            );
+          }
+
+          // Default marker for activities without photos
           return (
             <Marker
               key={activity.id}

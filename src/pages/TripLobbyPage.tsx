@@ -672,16 +672,25 @@ interface MemberLocation {
   user?: { name: string };
 }
 
+// Debug logging for location sharing
+function locationLog(message: string, data?: unknown) {
+  const timestamp = new Date().toISOString().split('T')[1].slice(0, 12);
+  console.log(`[${timestamp}][Location] ${message}`, data !== undefined ? data : '');
+}
+
 function LocationTab({ tripId, members }: { tripId: string; members: TripMember[] }) {
   const { user } = useAuth();
   const [sharing, setSharing] = useState(false);
   const [locations, setLocations] = useState<MemberLocation[]>([]);
   const [myLocation, setMyLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [error, setError] = useState('');
+  const [debugMsg, setDebugMsg] = useState('');
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [watchId, setWatchId] = useState<number | null>(null);
+  const [gettingLocation, setGettingLocation] = useState(false);
 
   useEffect(() => {
+    locationLog('LocationTab mounted', { tripId, userId: user?.id });
     loadLocations();
 
     // Set up realtime subscription
@@ -695,11 +704,14 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
           table: 'member_locations',
           filter: `trip_id=eq.${tripId}`,
         },
-        () => {
+        (payload) => {
+          locationLog('Realtime update received', payload);
           loadLocations();
         }
       )
-      .subscribe();
+      .subscribe((status) => {
+        locationLog('Subscription status', status);
+      });
 
     return () => {
       channel.unsubscribe();
@@ -716,54 +728,103 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
   }, [watchId]);
 
   async function loadLocations() {
-    const { data } = await supabase
+    locationLog('Loading locations from database...');
+    const { data, error: fetchError } = await supabase
       .from('member_locations')
       .select('*, user:users(name)')
       .eq('trip_id', tripId);
 
-    if (data) {
+    if (fetchError) {
+      locationLog('Error loading locations', fetchError);
+      setDebugMsg(`Load error: ${fetchError.message}`);
+    } else if (data) {
+      locationLog('Locations loaded', { count: data.length, data });
       setLocations(data);
       setLastUpdate(new Date());
+      setDebugMsg(`Loaded ${data.length} locations`);
     }
   }
 
   async function startSharing() {
+    locationLog('startSharing called', { userId: user?.id });
+
     if (!navigator.geolocation) {
-      setError('Geolocation is not supported by your browser');
+      const msg = 'Geolocation is not supported by your browser';
+      setError(msg);
+      locationLog(msg);
+      return;
+    }
+
+    if (!user?.id) {
+      const msg = 'You must be logged in to share location';
+      setError(msg);
+      locationLog(msg);
       return;
     }
 
     setSharing(true);
+    setGettingLocation(true);
     setError('');
+    setDebugMsg('Requesting location permission...');
 
     const id = navigator.geolocation.watchPosition(
       async (position) => {
-        const { latitude, longitude } = position.coords;
+        const { latitude, longitude, accuracy } = position.coords;
+        locationLog('Position received', { latitude, longitude, accuracy });
         setMyLocation({ lat: latitude, lng: longitude });
+        setGettingLocation(false);
+        setDebugMsg(`Got location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)} (accuracy: ${Math.round(accuracy)}m)`);
 
         // Update location in database
-        await supabase.from('member_locations').upsert({
+        const { error: upsertError } = await supabase.from('member_locations').upsert({
           trip_id: tripId,
-          user_id: user?.id,
+          user_id: user.id,
           latitude,
           longitude,
           updated_at: new Date().toISOString(),
         });
+
+        if (upsertError) {
+          locationLog('Error upserting location', upsertError);
+          setDebugMsg(`DB error: ${upsertError.message}`);
+        } else {
+          locationLog('Location saved to database');
+          // Reload to get the updated list
+          loadLocations();
+        }
       },
       (err) => {
-        setError(`Error getting location: ${err.message}`);
+        locationLog('Geolocation error', { code: err.code, message: err.message });
+        let errorMsg = 'Error getting location';
+        switch (err.code) {
+          case 1:
+            errorMsg = 'Location permission denied. Please allow location access in your browser settings.';
+            break;
+          case 2:
+            errorMsg = 'Location unavailable. Please check your device settings.';
+            break;
+          case 3:
+            errorMsg = 'Location request timed out. Please try again.';
+            break;
+          default:
+            errorMsg = `Error: ${err.message}`;
+        }
+        setError(errorMsg);
         setSharing(false);
+        setGettingLocation(false);
       },
       {
         enableHighAccuracy: true,
         maximumAge: 30000,
-        timeout: 10000,
+        timeout: 15000,
       }
     );
     setWatchId(id);
   }
 
   async function stopSharing() {
+    locationLog('stopSharing called');
+
     // Clear the geolocation watcher
     if (watchId !== null) {
       navigator.geolocation.clearWatch(watchId);
@@ -772,13 +833,23 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
 
     setSharing(false);
     setMyLocation(null);
+    setDebugMsg('Location sharing stopped');
 
     // Remove location from database
-    await supabase
-      .from('member_locations')
-      .delete()
-      .eq('trip_id', tripId)
-      .eq('user_id', user?.id);
+    if (user?.id) {
+      const { error: deleteError } = await supabase
+        .from('member_locations')
+        .delete()
+        .eq('trip_id', tripId)
+        .eq('user_id', user.id);
+
+      if (deleteError) {
+        locationLog('Error deleting location', deleteError);
+      } else {
+        locationLog('Location deleted from database');
+        loadLocations();
+      }
+    }
   }
 
   function getTimeSince(dateStr: string): string {
@@ -793,6 +864,33 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
 
   const sharingMembers = locations.length;
   const totalMembers = members.length;
+
+  // Merge locations: include user's own location if sharing but not yet in DB
+  const allLocations = React.useMemo(() => {
+    const dbLocations = locations.map(loc => ({
+      user_id: loc.user_id,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      updated_at: loc.updated_at,
+      user: loc.user ? { name: loc.user.name } : undefined,
+    }));
+
+    // Add own location if sharing and not already in locations
+    if (sharing && myLocation && user?.id) {
+      const existsInDb = locations.some(loc => loc.user_id === user.id);
+      if (!existsInDb) {
+        dbLocations.push({
+          user_id: user.id,
+          latitude: myLocation.lat,
+          longitude: myLocation.lng,
+          updated_at: new Date().toISOString(),
+          user: { name: user.name || 'You' },
+        });
+      }
+    }
+
+    return dbLocations;
+  }, [locations, sharing, myLocation, user]);
 
   return (
     <div className="space-y-6">
@@ -810,13 +908,19 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
           </div>
           <button
             onClick={sharing ? stopSharing : startSharing}
-            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-colors ${
+            disabled={gettingLocation}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-colors disabled:opacity-50 ${
               sharing
                 ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                 : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
             }`}
           >
-            {sharing ? (
+            {gettingLocation ? (
+              <>
+                <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                Getting location...
+              </>
+            ) : sharing ? (
               <>
                 <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
                 Stop Sharing
@@ -843,18 +947,19 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
             </p>
           </div>
         )}
+
+        {/* Debug info - helpful for troubleshooting */}
+        {debugMsg && (
+          <div className="mt-2 text-xs text-white/40 font-mono">
+            {debugMsg}
+          </div>
+        )}
       </div>
 
       {/* Interactive Map */}
       <div className="card p-6">
         <GoogleMapComponent
-          memberLocations={locations.map(loc => ({
-            user_id: loc.user_id,
-            latitude: loc.latitude,
-            longitude: loc.longitude,
-            updated_at: loc.updated_at,
-            user: loc.user ? { name: loc.user.name } : undefined,
-          }))}
+          memberLocations={allLocations}
           height="400px"
         />
 
@@ -875,36 +980,48 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
       {/* Member locations list */}
       <div className="card p-6">
         <h3 className="font-semibold mb-4">Active Members</h3>
-        {locations.length === 0 ? (
+        {allLocations.length === 0 ? (
           <p className="text-white/50 text-sm">
             No members are currently sharing their location.
             Be the first to share!
           </p>
         ) : (
           <div className="space-y-3">
-            {locations.map((loc) => (
-              <div
-                key={loc.user_id}
-                className="flex items-center gap-3 p-3 bg-white/5 rounded-xl"
-              >
-                <div className="relative">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center font-medium">
-                    {loc.user?.name?.charAt(0) || '?'}
+            {allLocations.map((loc) => {
+              const isMe = loc.user_id === user?.id;
+              return (
+                <div
+                  key={loc.user_id}
+                  className={`flex items-center gap-3 p-3 rounded-xl ${
+                    isMe ? 'bg-blue-500/10 border border-blue-500/30' : 'bg-white/5'
+                  }`}
+                >
+                  <div className="relative">
+                    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-medium ${
+                      isMe
+                        ? 'bg-gradient-to-br from-blue-500 to-cyan-500'
+                        : 'bg-gradient-to-br from-blue-500 to-fuchsia-500'
+                    }`}>
+                      {loc.user?.name?.charAt(0) || '?'}
+                    </div>
+                    <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 border-slate-800" />
                   </div>
-                  <span className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full bg-green-400 border-2 border-slate-800" />
+                  <div className="flex-1">
+                    <p className="font-medium">
+                      {isMe ? 'You' : (loc.user?.name || 'Unknown')}
+                      {isMe && <span className="ml-2 text-xs text-blue-400">(sharing)</span>}
+                    </p>
+                    <p className="text-xs text-white/40">
+                      Updated {getTimeSince(loc.updated_at)}
+                    </p>
+                  </div>
+                  <div className="text-right text-xs text-white/40">
+                    <p>{loc.latitude.toFixed(4)}</p>
+                    <p>{loc.longitude.toFixed(4)}</p>
+                  </div>
                 </div>
-                <div className="flex-1">
-                  <p className="font-medium">{loc.user?.name || 'Unknown'}</p>
-                  <p className="text-xs text-white/40">
-                    Updated {getTimeSince(loc.updated_at)}
-                  </p>
-                </div>
-                <div className="text-right text-xs text-white/40">
-                  <p>{loc.latitude.toFixed(4)}</p>
-                  <p>{loc.longitude.toFixed(4)}</p>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
@@ -1816,6 +1933,8 @@ function RouteTab({ tripId, schedule, trip }: { tripId: string; schedule: Schedu
                   type: item.itemType === 'media' ? 'media' : (item as ScheduleItem).type,
                   start_time: item.itemType === 'schedule' ? (item as ScheduleItem).start_time : item.created_at,
                   isRevealed: true,
+                  // Pass photo URL for media items to render photo markers
+                  photoUrl: item.itemType === 'media' ? (item as MediaItem).file_url : undefined,
                 }))}
               showRoute={true}
               height="500px"

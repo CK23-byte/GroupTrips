@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   Plus,
@@ -16,25 +16,46 @@ import { useAuth } from '../contexts/AuthContext';
 import { supabase, generateLobbyCode } from '../lib/supabase';
 import type { Trip, TripMember } from '../types';
 
+// Debug logging - always on for now to diagnose issues
+function debugLog(context: string, message: string, data?: unknown) {
+  const timestamp = new Date().toISOString().split('T')[1].slice(0, 12);
+  console.log(`[${timestamp}][${context}] ${message}`, data !== undefined ? data : '');
+}
+
 export default function DashboardPage() {
-  const { user, signOut } = useAuth();
+  const { user, loading: authLoading } = useAuth();
+  const { signOut } = useAuth();
   const navigate = useNavigate();
   const [trips, setTrips] = useState<(Trip & { members: TripMember[] })[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [paymentReturnDetected, setPaymentReturnDetected] = useState(false);
+  const hasCheckedPayment = useRef(false);
 
-  // Check for payment return on mount
+  // Check for payment return on mount - but only once
   useEffect(() => {
+    if (hasCheckedPayment.current) return;
+    hasCheckedPayment.current = true;
+
     const urlParams = new URLSearchParams(window.location.search);
     const paymentStatus = urlParams.get('payment');
     const savedTripData = sessionStorage.getItem('pendingTripData');
     const pendingPayment = sessionStorage.getItem('pendingPayment');
 
-    // If returning from payment, open the modal to handle it
+    debugLog('Dashboard', 'Payment check on mount', {
+      paymentStatus,
+      hasSavedTripData: !!savedTripData,
+      pendingPayment,
+      url: window.location.href,
+    });
+
+    // If returning from payment, set flag and open modal
     if ((paymentStatus === 'success' || pendingPayment === 'true') && savedTripData) {
+      debugLog('Dashboard', 'Payment return detected - will open modal');
+      setPaymentReturnDetected(true);
       setShowCreateModal(true);
     } else if (paymentStatus === 'cancelled') {
-      // Clear URL params for cancelled payment
+      debugLog('Dashboard', 'Payment cancelled');
       window.history.replaceState({}, '', window.location.pathname);
       sessionStorage.removeItem('pendingPayment');
     }
@@ -48,12 +69,12 @@ export default function DashboardPage() {
 
   async function loadTrips() {
     if (!user) {
-      console.log('[loadTrips] No user, skipping');
+      debugLog('loadTrips', 'No user, skipping');
       setLoading(false);
       return;
     }
 
-    console.log('[loadTrips] Loading trips for user:', user.id);
+    debugLog('loadTrips', 'Loading trips for user', user.id);
 
     try {
       const { data: memberData, error: memberError } = await supabase
@@ -61,7 +82,7 @@ export default function DashboardPage() {
         .select('trip_id')
         .eq('user_id', user.id);
 
-      console.log('[loadTrips] Member data:', memberData, 'Error:', memberError);
+      debugLog('loadTrips', 'Member data', { count: memberData?.length, error: memberError?.message });
 
       if (memberError) {
         console.error('[loadTrips] Error fetching memberships:', memberError);
@@ -71,7 +92,7 @@ export default function DashboardPage() {
 
       if (memberData && memberData.length > 0) {
         const tripIds = memberData.map((m) => m.trip_id);
-        console.log('[loadTrips] Trip IDs:', tripIds);
+        debugLog('loadTrips', 'Fetching trips', tripIds);
 
         const { data: tripsData, error: tripsError } = await supabase
           .from('trips')
@@ -79,7 +100,7 @@ export default function DashboardPage() {
           .in('id', tripIds)
           .order('departure_time', { ascending: true });
 
-        console.log('[loadTrips] Trips data:', tripsData, 'Error:', tripsError);
+        debugLog('loadTrips', 'Trips result', { count: tripsData?.length, error: tripsError?.message });
 
         if (tripsError) {
           console.error('[loadTrips] Error fetching trips:', tripsError);
@@ -87,7 +108,7 @@ export default function DashboardPage() {
           setTrips(tripsData as (Trip & { members: TripMember[] })[]);
         }
       } else {
-        console.log('[loadTrips] No memberships found');
+        debugLog('loadTrips', 'No memberships found');
       }
     } catch (err) {
       console.error('[loadTrips] Unexpected error:', err);
@@ -173,7 +194,7 @@ export default function DashboardPage() {
         </div>
 
         {/* Trips Grid */}
-        {loading ? (
+        {loading || authLoading ? (
           <div className="text-center py-12">
             <div className="animate-spin w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full mx-auto mb-4" />
             <p className="text-white/50">Loading trips...</p>
@@ -209,11 +230,16 @@ export default function DashboardPage() {
       {/* Create Trip Modal */}
       {showCreateModal && (
         <CreateTripModal
-          onClose={() => setShowCreateModal(false)}
+          onClose={() => {
+            setShowCreateModal(false);
+            setPaymentReturnDetected(false);
+          }}
           onCreated={() => {
             setShowCreateModal(false);
+            setPaymentReturnDetected(false);
             loadTrips();
           }}
+          isPaymentReturn={paymentReturnDetected}
         />
       )}
     </div>
@@ -227,55 +253,43 @@ function TripCard({
   trip: Trip & { members: TripMember[] };
   status: { label: string; color: string };
 }) {
-  const departure = new Date(trip.departure_time);
-  const returnDate = trip.return_time ? new Date(trip.return_time) : null;
-
-  // Format date range
-  const formatDateRange = () => {
-    const depStr = departure.toLocaleDateString('en-US', {
-      day: 'numeric',
-      month: 'short',
-    });
-    if (returnDate) {
-      const retStr = returnDate.toLocaleDateString('en-US', {
-        day: 'numeric',
-        month: 'short',
-      });
-      return `${depStr} - ${retStr}`;
-    }
-    return depStr;
-  };
-
   return (
-    <Link to={`/trip/${trip.id}`} className="card card-hover p-6 block">
+    <Link
+      to={`/trip/${trip.id}`}
+      className="card card-hover p-6 group"
+    >
       <div className="flex items-start justify-between mb-4">
         <div>
-          <span
-            className={`inline-block px-2 py-1 rounded-full text-xs font-medium ${status.color}`}
-          >
-            {status.label}
-          </span>
+          <h3 className="font-semibold text-lg group-hover:text-blue-400 transition-colors">
+            {trip.name}
+          </h3>
+          {trip.group_name && (
+            <p className="text-sm text-white/50">{trip.group_name}</p>
+          )}
         </div>
-        <ChevronRight className="w-5 h-5 text-white/30" />
+        <span className={`px-2 py-1 rounded-full text-xs ${status.color}`}>
+          {status.label}
+        </span>
       </div>
 
-      <h3 className="text-xl font-semibold mb-2">{trip.name}</h3>
-
-      {trip.description && (
-        <p className="text-white/50 text-sm mb-4 line-clamp-2">
-          {trip.description}
-        </p>
-      )}
-
-      <div className="flex items-center gap-4 text-sm text-white/60">
-        <div className="flex items-center gap-1">
+      <div className="space-y-2 text-sm text-white/60">
+        <div className="flex items-center gap-2">
           <Calendar className="w-4 h-4" />
-          <span>{formatDateRange()}</span>
+          {new Date(trip.departure_time).toLocaleDateString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric',
+          })}
         </div>
-        <div className="flex items-center gap-1">
+        <div className="flex items-center gap-2">
           <Users className="w-4 h-4" />
-          <span>{trip.members?.length || 0} members</span>
+          {trip.members?.length || 0} members
         </div>
+      </div>
+
+      <div className="mt-4 pt-4 border-t border-white/10 flex items-center justify-between">
+        <span className="text-xs text-white/40">Code: {trip.lobby_code}</span>
+        <ChevronRight className="w-5 h-5 text-white/30 group-hover:text-white/60 transition-colors" />
       </div>
     </Link>
   );
@@ -284,9 +298,11 @@ function TripCard({
 function CreateTripModal({
   onClose,
   onCreated,
+  isPaymentReturn,
 }: {
   onClose: () => void;
   onCreated: () => void;
+  isPaymentReturn: boolean;
 }) {
   const { user } = useAuth();
   const [step, setStep] = useState<'details' | 'payment' | 'creating' | 'success'>('details');
@@ -299,42 +315,74 @@ function CreateTripModal({
   const [returnTime, setReturnTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [debugInfo, setDebugInfo] = useState<string[]>([]);
   const [createdTrip, setCreatedTrip] = useState<Trip | null>(null);
   const [copied, setCopied] = useState(false);
-  const [_pendingTripData, setPendingTripData] = useState<{
-    name: string;
-    groupName?: string;
-    description: string;
-    departureTime: string;
-    returnTime?: string;
-  } | null>(null);
+  const hasProcessedPayment = useRef(false);
+
+  // Add debug info
+  function addDebug(msg: string) {
+    debugLog('CreateTripModal', msg);
+    setDebugInfo(prev => [...prev, `${new Date().toISOString().split('T')[1].slice(0, 8)}: ${msg}`]);
+  }
 
   // Check for payment success on mount
   useEffect(() => {
-    // Wait for user to be loaded
-    if (!user) return;
+    addDebug(`Modal mounted. isPaymentReturn=${isPaymentReturn}, user=${user?.id || 'null'}, hasProcessed=${hasProcessedPayment.current}`);
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const paymentStatus = urlParams.get('payment');
+    // If not a payment return, don't do anything special
+    if (!isPaymentReturn) {
+      addDebug('Not a payment return, showing details form');
+      return;
+    }
+
+    // Prevent double processing
+    if (hasProcessedPayment.current) {
+      addDebug('Already processed payment, skipping');
+      return;
+    }
+
+    // Wait for user to be loaded
+    if (!user) {
+      addDebug('User not loaded yet, waiting...');
+      return;
+    }
+
+    // Mark as processed
+    hasProcessedPayment.current = true;
+
+    // Get saved trip data
     const savedTripData = sessionStorage.getItem('pendingTripData');
     const pendingPayment = sessionStorage.getItem('pendingPayment');
+    const urlParams = new URLSearchParams(window.location.search);
+    const paymentStatus = urlParams.get('payment');
 
-    // Check if returning from payment (either via URL param or sessionStorage)
-    const isPaymentSuccess = paymentStatus === 'success' || (pendingPayment === 'true' && savedTripData);
+    addDebug(`Payment data: status=${paymentStatus}, pendingPayment=${pendingPayment}, hasTripData=${!!savedTripData}`);
 
-    if (isPaymentSuccess && savedTripData) {
-      // Clear sessionStorage immediately to prevent re-triggering
+    if (!savedTripData) {
+      addDebug('ERROR: No saved trip data found in sessionStorage!');
+      setError('Trip data was lost. Please create the trip again.');
+      setStep('details');
+      return;
+    }
+
+    try {
       const tripData = JSON.parse(savedTripData);
+      addDebug(`Parsed trip data: ${JSON.stringify(tripData)}`);
+
+      // Clear sessionStorage to prevent re-triggering
       sessionStorage.removeItem('pendingTripData');
       sessionStorage.removeItem('pendingPayment');
-      // Remove query params
+      sessionStorage.removeItem('returnAfterLogin');
+
+      // Clear URL params
       window.history.replaceState({}, '', window.location.pathname);
 
-      setPendingTripData(tripData);
-      setName(tripData.name);
+      // Populate form fields
+      setName(tripData.name || '');
       setGroupName(tripData.groupName || '');
-      setDescription(tripData.description);
-      // Parse the combined datetime back to separate fields
+      setDescription(tripData.description || '');
+
       if (tripData.departureTime) {
         const [date, time] = tripData.departureTime.split('T');
         setDepartureDate(date || '');
@@ -345,19 +393,24 @@ function CreateTripModal({
         setReturnDate(date || '');
         setReturnTime(time?.slice(0, 5) || '');
       }
+
+      // Set to creating state and create trip
       setStep('creating');
-      // Auto-create trip after payment
+      addDebug('Starting trip creation...');
       createTripAfterPayment(tripData);
-    } else if (paymentStatus === 'cancelled') {
-      // User cancelled payment
-      window.history.replaceState({}, '', window.location.pathname);
-      setError('Payment was cancelled. Please try again.');
-      setStep('payment');
+
+    } catch (err) {
+      addDebug(`ERROR parsing trip data: ${err}`);
+      setError('Failed to parse trip data. Please try again.');
+      setStep('details');
     }
-  }, [user]);
+  }, [isPaymentReturn, user]);
 
   async function createTripAfterPayment(tripData: { name: string; groupName?: string; description: string; departureTime: string; returnTime?: string }) {
+    addDebug('createTripAfterPayment called');
+
     if (!user) {
+      addDebug('ERROR: No user available');
       setError('User not logged in. Please refresh and try again.');
       setStep('details');
       return;
@@ -367,44 +420,56 @@ function CreateTripModal({
     setError('');
 
     try {
+      addDebug(`Creating trip: ${tripData.name}`);
+
       const departureDateObj = new Date(tripData.departureTime);
       if (isNaN(departureDateObj.getTime())) {
-        throw new Error('Invalid departure date');
+        throw new Error(`Invalid departure date: ${tripData.departureTime}`);
       }
+      addDebug(`Departure date parsed: ${departureDateObj.toISOString()}`);
 
       let returnDateObj: Date | null = null;
       if (tripData.returnTime) {
         returnDateObj = new Date(tripData.returnTime);
         if (isNaN(returnDateObj.getTime())) {
+          addDebug(`Invalid return date, ignoring: ${tripData.returnTime}`);
           returnDateObj = null;
         }
       }
 
       const lobbyCode = generateLobbyCode();
+      addDebug(`Generated lobby code: ${lobbyCode}`);
+
+      const insertData = {
+        name: tripData.name,
+        group_name: tripData.groupName || null,
+        description: tripData.description || null,
+        lobby_code: lobbyCode,
+        admin_id: user.id,
+        departure_time: departureDateObj.toISOString(),
+        return_time: returnDateObj?.toISOString() || null,
+        status: 'planning' as const,
+      };
+      addDebug(`Insert data: ${JSON.stringify(insertData)}`);
 
       const { data: trip, error: tripError } = await supabase
         .from('trips')
-        .insert({
-          name: tripData.name,
-          group_name: tripData.groupName || null,
-          description: tripData.description || null,
-          lobby_code: lobbyCode,
-          admin_id: user.id,
-          departure_time: departureDateObj.toISOString(),
-          return_time: returnDateObj?.toISOString() || null,
-          status: 'planning',
-        })
+        .insert(insertData)
         .select()
         .single();
 
       if (tripError) {
+        addDebug(`ERROR creating trip: ${tripError.message} (${tripError.code})`);
         console.error('[createTripAfterPayment] Trip error:', tripError);
-        setError('Failed to create trip: ' + tripError.message);
+        setError(`Failed to create trip: ${tripError.message}`);
         setStep('details');
         setLoading(false);
         return;
       }
 
+      addDebug(`Trip created successfully: ${trip.id}`);
+
+      // Add creator as admin member
       const { error: memberError } = await supabase.from('trip_members').insert({
         trip_id: trip.id,
         user_id: user.id,
@@ -412,15 +477,22 @@ function CreateTripModal({
       });
 
       if (memberError) {
+        addDebug(`WARNING: Failed to add member: ${memberError.message}`);
         console.error('[createTripAfterPayment] Member error:', memberError);
-        // Trip was created but member wasn't added - still show success
+        // Don't fail - trip was created
+      } else {
+        addDebug('Member added successfully');
       }
 
       setCreatedTrip(trip as Trip);
       setStep('success');
+      addDebug('Trip creation complete!');
+
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      addDebug(`EXCEPTION: ${errMsg}`);
       console.error('[createTripAfterPayment] Unexpected error:', err);
-      setError('Unexpected error: ' + String(err));
+      setError(`Unexpected error: ${errMsg}`);
       setStep('details');
     } finally {
       setLoading(false);
@@ -429,6 +501,12 @@ function CreateTripModal({
 
   function handleProceedToPayment(e: React.FormEvent) {
     e.preventDefault();
+    addDebug('handleProceedToPayment called');
+
+    if (!name.trim()) {
+      setError('Please enter a trip name');
+      return;
+    }
 
     if (!departureDate) {
       setError('Please select a departure date');
@@ -459,26 +537,31 @@ function CreateTripModal({
     }
 
     setError('');
+
     // Save trip data for after payment
     const tripData = {
-      name,
-      groupName,
-      description,
+      name: name.trim(),
+      groupName: groupName.trim(),
+      description: description.trim(),
       departureTime: departureDateTimeStr,
       returnTime: returnDateTimeStr
     };
+
+    addDebug(`Saving trip data: ${JSON.stringify(tripData)}`);
     sessionStorage.setItem('pendingTripData', JSON.stringify(tripData));
     setStep('payment');
   }
 
   async function handlePayment() {
+    addDebug('handlePayment called');
     setLoading(true);
 
     // Use Stripe Payment Link directly
     const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
+    addDebug(`Payment link: ${paymentLink ? 'configured' : 'not configured'}`);
 
     if (paymentLink) {
-      // Add client_reference_id to track the user and prefilled_email
+      // Add client_reference_id to track the user
       const url = new URL(paymentLink);
       if (user?.id) {
         url.searchParams.set('client_reference_id', user.id);
@@ -486,11 +569,16 @@ function CreateTripModal({
       if (user?.email) {
         url.searchParams.set('prefilled_email', user.email);
       }
-      // Add success/cancel URL handling
+
+      // Mark that we're pending payment
       sessionStorage.setItem('pendingPayment', 'true');
+      addDebug(`Redirecting to Stripe: ${url.toString()}`);
+      addDebug(`SessionStorage before redirect: pendingTripData=${sessionStorage.getItem('pendingTripData')?.slice(0, 50)}...`);
+
       window.location.href = url.toString();
     } else {
       // Fallback to API if no payment link configured
+      addDebug('Using API fallback for payment');
       try {
         const response = await fetch('/api/create-checkout', {
           method: 'POST',
@@ -505,14 +593,17 @@ function CreateTripModal({
         });
 
         const data = await response.json();
+        addDebug(`API response: ${JSON.stringify(data)}`);
 
         if (data.url) {
+          sessionStorage.setItem('pendingPayment', 'true');
           window.location.href = data.url;
         } else {
           setError('Payment system unavailable. Please try again later.');
           setLoading(false);
         }
-      } catch {
+      } catch (err) {
+        addDebug(`Payment API error: ${err}`);
         setError('Payment failed. Please try again.');
         setLoading(false);
       }
@@ -535,14 +626,15 @@ function CreateTripModal({
           <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-4">
             <Check className="w-8 h-8 text-green-400" />
           </div>
+
           <h2 className="text-2xl font-bold mb-2">Trip Created!</h2>
           <p className="text-white/60 mb-6">
-            Share the lobby code with your group to invite them
+            Share the lobby code with your group
           </p>
 
           <div className="bg-white/5 rounded-xl p-4 mb-6">
             <p className="text-sm text-white/50 mb-2">Lobby Code</p>
-            <div className="flex items-center justify-center gap-2">
+            <div className="flex items-center justify-center gap-3">
               <span className="text-3xl font-mono font-bold tracking-wider">
                 {createdTrip.lobby_code}
               </span>
@@ -581,11 +673,36 @@ function CreateTripModal({
     return (
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
         <div className="card p-8 max-w-md w-full text-center">
-          <div className="animate-spin w-12 h-12 border-3 border-blue-500 border-t-transparent rounded-full mx-auto mb-4" />
-          <h2 className="text-xl font-bold mb-2">Creating your trip...</h2>
-          <p className="text-white/60">
-            Payment successful! Setting up your trip now.
-          </p>
+          {loading ? (
+            <>
+              <div className="animate-spin w-12 h-12 border-3 border-blue-500 border-t-transparent rounded-full mx-auto mb-4" />
+              <h2 className="text-xl font-bold mb-2">Creating your trip...</h2>
+              <p className="text-white/60">
+                Payment successful! Setting up your trip now.
+              </p>
+            </>
+          ) : error ? (
+            <>
+              <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+                <span className="text-3xl">❌</span>
+              </div>
+              <h2 className="text-xl font-bold mb-2">Error Creating Trip</h2>
+              <p className="text-red-400 mb-4">{error}</p>
+              <button onClick={() => setStep('details')} className="btn-primary">
+                Try Again
+              </button>
+            </>
+          ) : null}
+
+          {/* Debug info - always show for troubleshooting */}
+          {debugInfo.length > 0 && (
+            <div className="mt-4 p-3 bg-black/30 rounded-lg text-left text-xs font-mono max-h-40 overflow-y-auto">
+              <p className="text-white/50 mb-1">Debug Log:</p>
+              {debugInfo.map((info, i) => (
+                <p key={i} className="text-white/70">{info}</p>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     );
@@ -626,11 +743,11 @@ function CreateTripModal({
               </li>
               <li className="flex items-center gap-2">
                 <Check className="w-4 h-4 text-green-400" />
-                Automatic aftermovie generation
+                Aftermovie generation
               </li>
               <li className="flex items-center gap-2">
                 <Check className="w-4 h-4 text-green-400" />
-                Live location sharing
+                Real-time location sharing
               </li>
             </ul>
           </div>
@@ -639,6 +756,7 @@ function CreateTripModal({
             <button
               onClick={() => setStep('details')}
               className="btn-secondary flex-1"
+              disabled={loading}
             >
               Back
             </button>
@@ -647,24 +765,29 @@ function CreateTripModal({
               disabled={loading}
               className="btn-primary flex-1 flex items-center justify-center gap-2"
             >
-              <CreditCard className="w-5 h-5" />
-              {loading ? 'Processing...' : 'Pay €24.99'}
+              {loading ? (
+                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              ) : (
+                <>
+                  <CreditCard className="w-5 h-5" />
+                  Pay €24.99
+                </>
+              )}
             </button>
           </div>
-
-          <p className="text-xs text-white/40 text-center mt-4">
-            Secure payment powered by Stripe
-          </p>
         </div>
       </div>
     );
   }
 
-  // Details step (default)
+  // Details form (default step)
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="card p-8 max-w-md w-full">
-        <h2 className="text-2xl font-bold mb-6">Create New Trip</h2>
+      <div className="card p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <h2 className="text-2xl font-bold mb-2">Create New Trip</h2>
+        <p className="text-white/60 mb-6">
+          Plan your group adventure
+        </p>
 
         {error && (
           <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 mb-6 text-red-200 text-sm">
@@ -713,7 +836,7 @@ function CreateTripModal({
             />
           </div>
 
-          {/* Date Range Picker - Booking.com style */}
+          {/* Date Range Picker */}
           <div className="bg-white/5 rounded-xl p-4 border border-white/10">
             <label className="block text-sm font-medium text-white/70 mb-3">
               Trip Dates
@@ -730,7 +853,6 @@ function CreateTripModal({
                   value={departureDate}
                   onChange={(e) => {
                     setDepartureDate(e.target.value);
-                    // Auto-set return date if not set
                     if (!returnDate && e.target.value) {
                       const nextDay = new Date(e.target.value);
                       nextDay.setDate(nextDay.getDate() + 1);
@@ -772,31 +894,9 @@ function CreateTripModal({
                 />
               </div>
             </div>
-
-            {/* Trip Duration Display */}
-            {departureDate && returnDate && (
-              <div className="mt-3 pt-3 border-t border-white/10 text-center">
-                <span className="text-sm text-white/60">
-                  {(() => {
-                    const start = new Date(departureDate);
-                    const end = new Date(returnDate);
-                    const days = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24));
-                    const nights = days;
-                    return `${nights} night${nights !== 1 ? 's' : ''}, ${days + 1} day${days + 1 !== 1 ? 's' : ''}`;
-                  })()}
-                </span>
-              </div>
-            )}
           </div>
 
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 mt-4">
-            <div className="flex items-center justify-between">
-              <span className="text-sm text-white/70">Trip creation fee</span>
-              <span className="font-bold">€24.99</span>
-            </div>
-          </div>
-
-          <div className="flex gap-3 pt-4">
+          <div className="flex gap-3 pt-2">
             <button
               type="button"
               onClick={onClose}
@@ -804,15 +904,21 @@ function CreateTripModal({
             >
               Cancel
             </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="btn-primary flex-1 disabled:opacity-50"
-            >
+            <button type="submit" className="btn-primary flex-1">
               Continue to Payment
             </button>
           </div>
         </form>
+
+        {/* Debug info for troubleshooting */}
+        {debugInfo.length > 0 && (
+          <div className="mt-4 p-3 bg-black/30 rounded-lg text-left text-xs font-mono max-h-32 overflow-y-auto">
+            <p className="text-white/50 mb-1">Debug:</p>
+            {debugInfo.slice(-5).map((info, i) => (
+              <p key={i} className="text-white/70">{info}</p>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
