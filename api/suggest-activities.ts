@@ -24,29 +24,40 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         messages: [
           {
             role: 'system',
-            content: `You are a travel activity planner. Suggest fun and interesting activities for group trips.
-Return a JSON array with 5 activities. Each activity should have:
-- title: Activity name
-- description: Brief description (1-2 sentences)
+            content: `You are a travel activity planner with expert local knowledge. Suggest REAL, EXISTING activities and venues that can actually be booked or visited.
+
+IMPORTANT: Only suggest places and activities that ACTUALLY EXIST. Include:
+- Real business/venue names (restaurants, tours, attractions)
+- Actual addresses when possible
+- Real booking websites (GetYourGuide, Viator, TripAdvisor, official venue websites)
+- Current opening hours if relevant
+
+Return a JSON array with 5 activities. Each activity MUST have:
+- title: The REAL name of the venue/activity (e.g., "Sagrada Familia Tour" not "City Cathedral Tour")
+- description: Brief description (1-2 sentences) of what makes it special
 - type: "activity", "meal", "travel", "accommodation", "free_time", or "meeting"
 - duration_hours: Estimated duration in hours
-- estimated_cost: Cost per person in EUR (number)
+- estimated_cost: Realistic cost per person in EUR (number)
 - best_time: Best time of day (morning, afternoon, evening, night)
+- address: Real street address if applicable
+- booking_url: Real URL where this can be booked (GetYourGuide, Viator, TripAdvisor, official site, or Google Maps search URL)
+- rating: Typical rating out of 5 (based on your knowledge)
+- tips: One insider tip for this activity
 
-Be creative and consider the local culture and attractions.`
+Focus on highly-rated, popular activities that groups typically enjoy.`
           },
           {
             role: 'user',
-            content: `Suggest activities for:
+            content: `Suggest REAL, BOOKABLE activities for:
 - Location: ${location || 'Unknown'}
 - Group size: ${groupSize || 'Unknown'} people
 - Date: ${date || 'Unknown'}
 - Preferences: ${preferences || 'None specified'}
 
-Return ONLY valid JSON array.`
+Return ONLY valid JSON array with real venues and booking links.`
           }
         ],
-        max_tokens: 1500,
+        max_tokens: 2000,
       }),
     });
 
