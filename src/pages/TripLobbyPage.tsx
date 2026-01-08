@@ -624,14 +624,18 @@ function OverviewTab({
         </div>
 
         {/* Weather Card */}
-        <WeatherCard destination={trip.destination} departureDate={trip.departure_time} />
+        <WeatherCard
+          destination={trip.destination}
+          departureDate={trip.departure_time}
+          isAdmin={isAdmin}
+        />
       </div>
     </div>
   );
 }
 
 // Weather component using Open-Meteo API (free, no API key required)
-function WeatherCard({ destination, departureDate }: { destination?: string; departureDate: string }) {
+function WeatherCard({ destination, departureDate, isAdmin }: { destination?: string; departureDate: string; isAdmin: boolean }) {
   const [weather, setWeather] = useState<{
     temperature: number;
     condition: string;
@@ -734,6 +738,12 @@ function WeatherCard({ destination, departureDate }: { destination?: string; dep
     return conditions[code] || { text: 'Unknown', icon: '❓' };
   }
 
+  // Check if destination should be hidden (reveal 1 hour before departure, same as tickets)
+  const departureTime = new Date(departureDate).getTime();
+  const now = Date.now();
+  const hoursUntilDeparture = (departureTime - now) / (1000 * 60 * 60);
+  const isDestinationRevealed = isAdmin || hoursUntilDeparture <= 1;
+
   if (!destination) {
     return (
       <div className="card p-6">
@@ -742,8 +752,36 @@ function WeatherCard({ destination, departureDate }: { destination?: string; dep
           Weather
         </h2>
         <p className="text-white/50 text-sm">
-          Destination not set yet. Weather will appear once the admin adds a destination.
+          {isAdmin
+            ? 'Set a destination in Trip Settings to show weather forecast.'
+            : 'Weather forecast will appear closer to departure.'}
         </p>
+      </div>
+    );
+  }
+
+  // Show mystery message for non-admins when destination is still hidden
+  if (!isDestinationRevealed) {
+    return (
+      <div className="card p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <span className="text-2xl">🎁</span>
+          Weather
+        </h2>
+        <div className="text-center py-4">
+          <p className="text-2xl mb-2">🤫</p>
+          <p className="text-white/70 font-medium">Destination is a surprise!</p>
+          <p className="text-white/50 text-sm mt-2">
+            Weather forecast reveals 1 hour before departure
+          </p>
+          {hoursUntilDeparture > 0 && (
+            <p className="text-xs text-white/40 mt-2">
+              {hoursUntilDeparture > 24
+                ? `${Math.floor(hoursUntilDeparture / 24)} days to go`
+                : `${Math.floor(hoursUntilDeparture)} hours to go`}
+            </p>
+          )}
+        </div>
       </div>
     );
   }

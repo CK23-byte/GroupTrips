@@ -817,28 +817,40 @@ function SettingsSection({
 }) {
   const navigate = useNavigate();
   const [name, setName] = useState(trip.name);
+  const [groupName, setGroupName] = useState(trip.group_name || '');
   const [description, setDescription] = useState(trip.description || '');
   const [destination, setDestination] = useState(trip.destination || '');
   const [departureTime, setDepartureTime] = useState(
     trip.departure_time ? new Date(trip.departure_time).toISOString().slice(0, 16) : ''
   );
+  const [returnTime, setReturnTime] = useState(
+    trip.return_time ? new Date(trip.return_time).toISOString().slice(0, 16) : ''
+  );
   const [loading, setLoading] = useState(false);
+  const [saved, setSaved] = useState(false);
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
+    setSaved(false);
 
-    await supabase
+    const { error } = await supabase
       .from('trips')
       .update({
         name,
+        group_name: groupName || null,
         description: description || null,
         destination: destination || null,
         departure_time: departureTime ? new Date(departureTime).toISOString() : null,
+        return_time: returnTime ? new Date(returnTime).toISOString() : null,
       })
       .eq('id', trip.id);
 
     setLoading(false);
+    if (!error) {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    }
     onUpdate();
   }
 
@@ -875,6 +887,19 @@ function SettingsSection({
 
           <div>
             <label className="block text-sm font-medium text-white/70 mb-2">
+              Group Name (optional)
+            </label>
+            <input
+              type="text"
+              value={groupName}
+              onChange={(e) => setGroupName(e.target.value)}
+              className="input-field"
+              placeholder="The Boys, Family, etc."
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-white/70 mb-2">
               Description
             </label>
             <textarea
@@ -897,19 +922,38 @@ function SettingsSection({
               className="input-field"
               placeholder="Barcelona, Paris, etc."
             />
+            <p className="text-xs text-white/50 mt-1">
+              Used for weather forecast. Hidden from participants until revealed.
+            </p>
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-white/70 mb-2">
-              Departure Date & Time
+          {/* Date Range */}
+          <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+            <label className="block text-sm font-medium text-white/70 mb-3">
+              Trip Dates
             </label>
-            <input
-              type="datetime-local"
-              value={departureTime}
-              onChange={(e) => setDepartureTime(e.target.value)}
-              className="input-field"
-            />
-            <p className="text-xs text-white/50 mt-1">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs text-white/50 mb-1">Departure</label>
+                <input
+                  type="datetime-local"
+                  value={departureTime}
+                  onChange={(e) => setDepartureTime(e.target.value)}
+                  className="input-field"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-white/50 mb-1">Return</label>
+                <input
+                  type="datetime-local"
+                  value={returnTime}
+                  onChange={(e) => setReturnTime(e.target.value)}
+                  className="input-field"
+                  min={departureTime}
+                />
+              </div>
+            </div>
+            <p className="text-xs text-white/50 mt-2">
               QR codes reveal 3 hours before, full tickets 1 hour before departure
             </p>
           </div>
@@ -917,9 +961,21 @@ function SettingsSection({
           <button
             type="submit"
             disabled={loading}
-            className="btn-primary w-full"
+            className="btn-primary w-full flex items-center justify-center gap-2"
           >
-            {loading ? 'Saving...' : 'Save Changes'}
+            {loading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Saving...
+              </>
+            ) : saved ? (
+              <>
+                <Check className="w-4 h-4" />
+                Saved!
+              </>
+            ) : (
+              'Save Changes'
+            )}
           </button>
         </div>
       </form>

@@ -45,15 +45,23 @@ export default function DashboardPage() {
     debugLog('Dashboard', 'Payment check on mount', {
       paymentStatus,
       hasSavedTripData: !!savedTripData,
+      savedTripDataPreview: savedTripData?.slice(0, 100),
       pendingPayment,
       url: window.location.href,
     });
 
     // If returning from payment, set flag and open modal
-    if ((paymentStatus === 'success' || pendingPayment === 'true') && savedTripData) {
-      debugLog('Dashboard', 'Payment return detected - will open modal');
-      setPaymentReturnDetected(true);
-      setShowCreateModal(true);
+    if (paymentStatus === 'success' || pendingPayment === 'true') {
+      if (savedTripData) {
+        debugLog('Dashboard', 'Payment return detected WITH trip data - opening modal');
+        setPaymentReturnDetected(true);
+        setShowCreateModal(true);
+      } else {
+        debugLog('Dashboard', 'Payment return detected BUT NO trip data in sessionStorage!');
+        // Show error to user
+        alert('Payment was successful but trip data was lost. This can happen if you used a different browser tab. Please create the trip again - you will NOT be charged twice.');
+        window.history.replaceState({}, '', window.location.pathname);
+      }
     } else if (paymentStatus === 'cancelled') {
       debugLog('Dashboard', 'Payment cancelled');
       window.history.replaceState({}, '', window.location.pathname);
