@@ -275,7 +275,7 @@ export default function TripLobbyPage() {
               active={activeTab === 'members'}
               onClick={() => setActiveTab('members')}
               icon={<Users className="w-4 h-4" />}
-              label={`Members (${members.length})`}
+              label={`Group (${members.length})`}
             />
             <TabButton
               active={activeTab === 'location'}
@@ -311,7 +311,6 @@ export default function TripLobbyPage() {
           <OverviewTab
             trip={trip}
             ticket={ticket}
-            members={members}
             messages={messages}
             schedule={schedule}
             revealStatus={revealStatus}
@@ -454,7 +453,6 @@ function isActivityRevealed(startTime: string): boolean {
 function OverviewTab({
   trip,
   ticket,
-  members,
   messages,
   schedule,
   revealStatus,
@@ -463,7 +461,6 @@ function OverviewTab({
 }: {
   trip: Trip;
   ticket: Ticket | null;
-  members: TripMember[];
   messages: TripMessage[];
   schedule: ScheduleItem[];
   revealStatus: string;
@@ -623,41 +620,196 @@ function OverviewTab({
                 })}
               </span>
             </div>
-            <div className="flex items-center gap-3">
-              <Users className="w-5 h-5 text-white/40" />
-              <span className="text-sm">{members.length} participants</span>
-            </div>
           </div>
         </div>
 
-        {/* Quick Members List */}
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold mb-4">Participants</h2>
-          <div className="space-y-2">
-            {members.slice(0, 5).map((member) => (
-              <div
-                key={member.id}
-                className="flex items-center gap-3 p-2 rounded-lg"
-              >
-                <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center text-sm font-medium">
-                  {member.user?.name?.charAt(0) || '?'}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">
-                    {member.user?.name}
-                  </p>
-                  {member.role === 'admin' && (
-                    <span className="text-xs text-blue-400">Admin</span>
-                  )}
-                </div>
-              </div>
-            ))}
-            {members.length > 5 && (
-              <p className="text-sm text-white/50 text-center pt-2">
-                +{members.length - 5} more
+        {/* Weather Card */}
+        <WeatherCard destination={trip.destination} departureDate={trip.departure_time} />
+      </div>
+    </div>
+  );
+}
+
+// Weather component using Open-Meteo API (free, no API key required)
+function WeatherCard({ destination, departureDate }: { destination?: string; departureDate: string }) {
+  const [weather, setWeather] = useState<{
+    temperature: number;
+    condition: string;
+    icon: string;
+    humidity: number;
+    windSpeed: number;
+    forecast: { date: string; high: number; low: number; condition: string; icon: string }[];
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (destination) {
+      fetchWeather(destination);
+    }
+  }, [destination]);
+
+  async function fetchWeather(location: string) {
+    setLoading(true);
+    setError('');
+
+    try {
+      // First, geocode the location to get coordinates
+      const geoResponse = await fetch(
+        `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`
+      );
+      const geoData = await geoResponse.json();
+
+      if (!geoData.results || geoData.results.length === 0) {
+        setError('Location not found');
+        setLoading(false);
+        return;
+      }
+
+      const { latitude, longitude } = geoData.results[0];
+
+      // Calculate the date range (departure date + 7 days)
+      const startDate = new Date(departureDate);
+      const endDate = new Date(startDate);
+      endDate.setDate(endDate.getDate() + 6);
+
+      // Fetch weather data
+      const weatherResponse = await fetch(
+        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=${startDate.toISOString().split('T')[0]}&end_date=${endDate.toISOString().split('T')[0]}`
+      );
+      const weatherData = await weatherResponse.json();
+
+      // Map weather codes to conditions and icons
+      const weatherCondition = getWeatherCondition(weatherData.current.weather_code);
+
+      setWeather({
+        temperature: Math.round(weatherData.current.temperature_2m),
+        condition: weatherCondition.text,
+        icon: weatherCondition.icon,
+        humidity: weatherData.current.relative_humidity_2m,
+        windSpeed: Math.round(weatherData.current.wind_speed_10m),
+        forecast: weatherData.daily.time.map((date: string, i: number) => ({
+          date,
+          high: Math.round(weatherData.daily.temperature_2m_max[i]),
+          low: Math.round(weatherData.daily.temperature_2m_min[i]),
+          ...getWeatherCondition(weatherData.daily.weather_code[i]),
+        })),
+      });
+    } catch (err) {
+      console.error('Weather fetch error:', err);
+      setError('Could not load weather');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Map WMO weather codes to conditions
+  function getWeatherCondition(code: number): { text: string; icon: string } {
+    const conditions: Record<number, { text: string; icon: string }> = {
+      0: { text: 'Clear', icon: '☀️' },
+      1: { text: 'Mostly Clear', icon: '🌤️' },
+      2: { text: 'Partly Cloudy', icon: '⛅' },
+      3: { text: 'Cloudy', icon: '☁️' },
+      45: { text: 'Foggy', icon: '🌫️' },
+      48: { text: 'Foggy', icon: '🌫️' },
+      51: { text: 'Light Drizzle', icon: '🌧️' },
+      53: { text: 'Drizzle', icon: '🌧️' },
+      55: { text: 'Heavy Drizzle', icon: '🌧️' },
+      61: { text: 'Light Rain', icon: '🌧️' },
+      63: { text: 'Rain', icon: '🌧️' },
+      65: { text: 'Heavy Rain', icon: '🌧️' },
+      71: { text: 'Light Snow', icon: '🌨️' },
+      73: { text: 'Snow', icon: '🌨️' },
+      75: { text: 'Heavy Snow', icon: '❄️' },
+      77: { text: 'Snow Grains', icon: '🌨️' },
+      80: { text: 'Light Showers', icon: '🌦️' },
+      81: { text: 'Showers', icon: '🌦️' },
+      82: { text: 'Heavy Showers', icon: '⛈️' },
+      85: { text: 'Snow Showers', icon: '🌨️' },
+      86: { text: 'Heavy Snow', icon: '❄️' },
+      95: { text: 'Thunderstorm', icon: '⛈️' },
+      96: { text: 'Thunderstorm', icon: '⛈️' },
+      99: { text: 'Severe Storm', icon: '⛈️' },
+    };
+    return conditions[code] || { text: 'Unknown', icon: '❓' };
+  }
+
+  if (!destination) {
+    return (
+      <div className="card p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <span className="text-2xl">🌤️</span>
+          Weather
+        </h2>
+        <p className="text-white/50 text-sm">
+          Destination not set yet. Weather will appear once the admin adds a destination.
+        </p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="card p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <span className="text-2xl">🌤️</span>
+          Weather
+        </h2>
+        <div className="flex items-center gap-2 text-white/50">
+          <div className="w-4 h-4 border-2 border-white/30 border-t-white/70 rounded-full animate-spin" />
+          Loading weather...
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !weather) {
+    return (
+      <div className="card p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <span className="text-2xl">🌤️</span>
+          Weather
+        </h2>
+        <p className="text-white/50 text-sm">{error || 'Weather unavailable'}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card p-6">
+      <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <span className="text-2xl">{weather.icon}</span>
+        Weather in {destination}
+      </h2>
+
+      {/* Current weather */}
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <p className="text-4xl font-bold">{weather.temperature}°C</p>
+          <p className="text-white/60">{weather.condition}</p>
+        </div>
+        <div className="text-right text-sm text-white/50">
+          <p>💧 {weather.humidity}%</p>
+          <p>💨 {weather.windSpeed} km/h</p>
+        </div>
+      </div>
+
+      {/* Forecast */}
+      <div className="border-t border-white/10 pt-4">
+        <p className="text-xs text-white/40 mb-3">Trip forecast</p>
+        <div className="grid grid-cols-4 gap-2">
+          {weather.forecast.slice(0, 4).map((day) => (
+            <div key={day.date} className="text-center">
+              <p className="text-xs text-white/50">
+                {new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' })}
               </p>
-            )}
-          </div>
+              <p className="text-lg my-1">{day.icon}</p>
+              <p className="text-xs">
+                <span className="text-white">{day.high}°</span>
+                <span className="text-white/40"> / {day.low}°</span>
+              </p>
+            </div>
+          ))}
         </div>
       </div>
     </div>
