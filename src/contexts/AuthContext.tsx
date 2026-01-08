@@ -102,42 +102,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   async function fetchUserProfile(userId: string, email: string) {
     authLog('fetchUserProfile started', { userId, email });
+
+    // Add timeout to prevent hanging
+    const timeoutPromise = new Promise<null>((_, reject) => {
+      setTimeout(() => reject(new Error('Profile fetch timeout after 5s')), 5000);
+    });
+
     try {
-      const { data, error } = await supabase
+      const fetchPromise = supabase
         .from('users')
         .select('*')
         .eq('id', userId)
         .single();
 
+      // Race between fetch and timeout
+      const { data, error } = await Promise.race([
+        fetchPromise,
+        timeoutPromise.then(() => ({ data: null, error: { code: 'TIMEOUT', message: 'Request timed out' } }))
+      ]) as { data: User | null; error: { code: string; message: string } | null };
+
       if (error) {
         authLog('Error fetching user profile', { code: error.code, message: error.message });
 
-        // If profile doesn't exist, create it
-        if (error.code === 'PGRST116') {
-          authLog('Profile not found, creating new profile');
-          const name = email.split('@')[0];
-          const { data: newUser, error: insertError } = await supabase
-            .from('users')
-            .insert({ id: userId, email, name })
-            .select()
-            .single();
+        // If profile doesn't exist or timeout, create/use fallback
+        if (error.code === 'PGRST116' || error.code === 'TIMEOUT') {
+          authLog('Profile not found or timeout, using fallback user');
 
-          if (insertError) {
-            authLog('Error creating user profile', insertError);
-            // Still set user with basic info so app works
-            setUser({ id: userId, email, name, created_at: new Date().toISOString() } as User);
-          } else {
-            authLog('Profile created successfully', newUser);
-            setUser(newUser as User);
+          // Try to create profile (might fail due to RLS, that's ok)
+          if (error.code === 'PGRST116') {
+            const name = email.split('@')[0];
+            supabase.from('users').insert({ id: userId, email, name }).then(({ error: insertError }) => {
+              if (insertError) {
+                authLog('Could not create profile (RLS?)', insertError.message);
+              } else {
+                authLog('Profile created in background');
+              }
+            });
           }
+
+          // Use fallback user immediately so app works
+          const fallbackUser = {
+            id: userId,
+            email,
+            name: email.split('@')[0],
+            created_at: new Date().toISOString()
+          } as User;
+          authLog('Using fallback user', fallbackUser);
+          setUser(fallbackUser);
         } else {
           // Other error - still allow login with basic user info
-          authLog('Using fallback user (profile fetch error)');
+          authLog('Using fallback user (other error)');
           setUser({ id: userId, email, name: email.split('@')[0], created_at: new Date().toISOString() } as User);
         }
-      } else {
+      } else if (data) {
         authLog('Profile fetched successfully', data);
         setUser(data as User);
+      } else {
+        // No data, no error - use fallback
+        authLog('No profile data, using fallback');
+        setUser({ id: userId, email, name: email.split('@')[0], created_at: new Date().toISOString() } as User);
       }
     } catch (err) {
       authLog('Unexpected error fetching profile', err);
