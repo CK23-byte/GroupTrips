@@ -40,8 +40,8 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     const urlParams = new URLSearchParams(window.location.search);
     const paymentStatus = urlParams.get('payment');
     const sessionId = urlParams.get('session_id');
-    const hasPendingPayment = sessionStorage.getItem('pendingPayment') === 'true';
-    const hasPendingTripData = sessionStorage.getItem('pendingTripData');
+    const hasPendingPayment = localStorage.getItem('pendingPayment') === 'true';
+    const hasPendingTripData = localStorage.getItem('pendingTripData');
 
     // Log diagnostic info when not authenticated
     console.log('[ProtectedRoute] User not authenticated, checking payment return...', {
@@ -54,10 +54,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
     // Save URL for after login if:
     // 1. Has session_id (can retrieve trip data from Stripe)
-    // 2. OR has pendingTripData in sessionStorage (legacy flow)
-    if (paymentStatus === 'success' && (sessionId || hasPendingTripData)) {
+    // 2. OR has pendingTripData in localStorage (persistent storage)
+    // 3. OR has pendingPayment flag (Payment Link flow)
+    if (paymentStatus === 'success' && (sessionId || hasPendingTripData || hasPendingPayment)) {
       console.log('[ProtectedRoute] Saving payment return URL for after login');
-      sessionStorage.setItem('returnAfterLogin', window.location.href);
+      localStorage.setItem('returnAfterLogin', window.location.href);
     }
 
     return <Navigate to="/login" replace />;

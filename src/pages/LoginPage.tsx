@@ -56,9 +56,9 @@ export default function LoginPage() {
         stopLoading();
       } else {
         // Success - check if we need to return to a specific URL (e.g., after payment)
-        const returnUrl = sessionStorage.getItem('returnAfterLogin');
+        const returnUrl = localStorage.getItem('returnAfterLogin');
         if (returnUrl) {
-          sessionStorage.removeItem('returnAfterLogin');
+          localStorage.removeItem('returnAfterLogin');
           window.location.href = returnUrl;
         } else {
           navigate('/dashboard');
