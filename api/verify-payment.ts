@@ -25,6 +25,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         success: true,
         tripName: session.metadata?.tripName,
         userId: session.metadata?.userId,
+        groupName: session.metadata?.groupName || '',
+        description: session.metadata?.description || '',
+        departureTime: session.metadata?.departureTime || '',
+        returnTime: session.metadata?.returnTime || '',
       });
     } else {
       return res.status(400).json({
