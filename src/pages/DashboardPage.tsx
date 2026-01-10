@@ -644,7 +644,26 @@ function CreateTripModal({
     addDebug('handlePayment called');
     setLoading(true);
 
-    // Get trip data from sessionStorage (saved in handleProceedToPayment)
+    // Use Payment Link first if configured (supports coupon codes)
+    const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
+    if (paymentLink) {
+      addDebug('Using Payment Link (supports coupon codes)');
+      const url = new URL(paymentLink);
+      if (user?.id) {
+        url.searchParams.set('client_reference_id', user.id);
+      }
+      if (user?.email) {
+        url.searchParams.set('prefilled_email', user.email);
+      }
+
+      sessionStorage.setItem('pendingPayment', 'true');
+      addDebug(`Redirecting to Stripe Payment Link: ${url.toString()}`);
+      window.location.href = url.toString();
+      return;
+    }
+
+    // Fallback to API if no Payment Link configured
+    addDebug('No Payment Link configured, using API');
     const savedTripData = sessionStorage.getItem('pendingTripData');
     let tripData: { name: string; groupName: string; description: string; departureTime: string; returnTime?: string } | null = null;
 
@@ -656,9 +675,6 @@ function CreateTripModal({
       }
     }
 
-    // Always try the API first - it stores trip data in Stripe metadata
-    // This ensures trip data survives even if sessionStorage is lost
-    addDebug('Creating checkout session via API');
     try {
       const response = await fetch('/api/create-checkout', {
         method: 'POST',
@@ -688,25 +704,8 @@ function CreateTripModal({
       addDebug(`API error: ${err}`);
     }
 
-    // Fallback to Payment Link if API fails
-    const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
-    if (paymentLink) {
-      addDebug('API failed, falling back to Payment Link');
-      const url = new URL(paymentLink);
-      if (user?.id) {
-        url.searchParams.set('client_reference_id', user.id);
-      }
-      if (user?.email) {
-        url.searchParams.set('prefilled_email', user.email);
-      }
-
-      sessionStorage.setItem('pendingPayment', 'true');
-      addDebug(`Redirecting to Stripe Payment Link: ${url.toString()}`);
-      window.location.href = url.toString();
-    } else {
-      setError('Payment system unavailable. Please try again later.');
-      setLoading(false);
-    }
+    setError('Payment system unavailable. Please try again later.');
+    setLoading(false);
   }
 
   async function copyCode() {
