@@ -103,69 +103,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function fetchUserProfile(userId: string, email: string) {
     authLog('fetchUserProfile started', { userId, email });
 
-    // Add timeout to prevent hanging
-    const timeoutPromise = new Promise<null>((_, reject) => {
-      setTimeout(() => reject(new Error('Profile fetch timeout after 5s')), 5000);
-    });
+    // Create fallback user that we can use if anything goes wrong
+    const fallbackUser = {
+      id: userId,
+      email,
+      name: email.split('@')[0],
+      created_at: new Date().toISOString()
+    } as User;
 
     try {
-      const fetchPromise = supabase
-        .from('users')
-        .select('*')
-        .eq('id', userId)
-        .single();
+      // Use Promise.race with a timeout that RESOLVES (not rejects) with a timeout marker
+      const timeoutResult = { data: null, error: { code: 'TIMEOUT', message: 'Request timed out' }, isTimeout: true };
 
-      // Race between fetch and timeout
-      const { data, error } = await Promise.race([
-        fetchPromise,
-        timeoutPromise.then(() => ({ data: null, error: { code: 'TIMEOUT', message: 'Request timed out' } }))
-      ]) as { data: User | null; error: { code: string; message: string } | null };
+      const result = await Promise.race([
+        supabase
+          .from('users')
+          .select('*')
+          .eq('id', userId)
+          .single()
+          .then(res => ({ ...res, isTimeout: false })),
+        new Promise<typeof timeoutResult>(resolve =>
+          setTimeout(() => resolve(timeoutResult), 3000)
+        )
+      ]);
+
+      if (result.isTimeout) {
+        authLog('Profile fetch timed out after 3s, using fallback user');
+        setUser(fallbackUser);
+        return;
+      }
+
+      const { data, error } = result;
 
       if (error) {
         authLog('Error fetching user profile', { code: error.code, message: error.message });
 
-        // If profile doesn't exist or timeout, create/use fallback
-        if (error.code === 'PGRST116' || error.code === 'TIMEOUT') {
-          authLog('Profile not found or timeout, using fallback user');
-
-          // Try to create profile (might fail due to RLS, that's ok)
-          if (error.code === 'PGRST116') {
-            const name = email.split('@')[0];
-            supabase.from('users').insert({ id: userId, email, name }).then(({ error: insertError }) => {
-              if (insertError) {
-                authLog('Could not create profile (RLS?)', insertError.message);
-              } else {
-                authLog('Profile created in background');
-              }
-            });
-          }
-
-          // Use fallback user immediately so app works
-          const fallbackUser = {
+        // If profile doesn't exist, try to create it in background
+        if (error.code === 'PGRST116') {
+          authLog('Profile not found, creating one in background');
+          supabase.from('users').insert({
             id: userId,
             email,
-            name: email.split('@')[0],
-            created_at: new Date().toISOString()
-          } as User;
-          authLog('Using fallback user', fallbackUser);
-          setUser(fallbackUser);
-        } else {
-          // Other error - still allow login with basic user info
-          authLog('Using fallback user (other error)');
-          setUser({ id: userId, email, name: email.split('@')[0], created_at: new Date().toISOString() } as User);
+            name: fallbackUser.name
+          }).then(({ error: insertError }) => {
+            if (insertError) {
+              authLog('Could not create profile', insertError.message);
+            } else {
+              authLog('Profile created successfully');
+            }
+          });
         }
+
+        // Use fallback user immediately
+        authLog('Using fallback user');
+        setUser(fallbackUser);
       } else if (data) {
-        authLog('Profile fetched successfully', data);
+        authLog('Profile fetched successfully', { id: data.id, name: data.name });
         setUser(data as User);
       } else {
-        // No data, no error - use fallback
         authLog('No profile data, using fallback');
-        setUser({ id: userId, email, name: email.split('@')[0], created_at: new Date().toISOString() } as User);
+        setUser(fallbackUser);
       }
     } catch (err) {
-      authLog('Unexpected error fetching profile', err);
-      // Fallback - allow login even if profile fetch fails
-      setUser({ id: userId, email, name: email.split('@')[0], created_at: new Date().toISOString() } as User);
+      const errorMessage = err instanceof Error ? err.message : String(err);
+      authLog('Exception in fetchUserProfile', errorMessage);
+      setUser(fallbackUser);
     } finally {
       authLog('fetchUserProfile complete, setting loading to false');
       setLoading(false);
