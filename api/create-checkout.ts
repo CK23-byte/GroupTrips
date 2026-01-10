@@ -11,13 +11,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    const { tripName, userId, successUrl, cancelUrl } = req.body;
+    const { tripName, userId, successUrl, cancelUrl, groupName, description, departureTime, returnTime } = req.body;
 
     if (!tripName || !userId) {
       return res.status(400).json({ error: 'Trip name and user ID are required' });
     }
 
-    // Create Stripe checkout session
+    // Create Stripe checkout session with all trip data in metadata
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card', 'ideal'],
       line_items: [
@@ -40,6 +40,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       metadata: {
         tripName,
         userId,
+        groupName: groupName || '',
+        description: description || '',
+        departureTime: departureTime || '',
+        returnTime: returnTime || '',
       },
       customer_email: req.body.email,
     });
