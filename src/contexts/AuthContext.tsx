@@ -111,29 +111,37 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       created_at: new Date().toISOString()
     } as User;
 
-    try {
-      // Use Promise.race with a timeout that RESOLVES (not rejects) with a timeout marker
-      const timeoutResult = { data: null, error: { code: 'TIMEOUT', message: 'Request timed out' }, isTimeout: true };
+    // Use a flag-based timeout that's guaranteed to work
+    let completed = false;
 
-      const result = await Promise.race([
-        supabase
-          .from('users')
-          .select('*')
-          .eq('id', userId)
-          .single()
-          .then(res => ({ ...res, isTimeout: false })),
-        new Promise<typeof timeoutResult>(resolve =>
-          setTimeout(() => resolve(timeoutResult), 3000)
-        )
-      ]);
-
-      if (result.isTimeout) {
+    // Set up timeout - if query doesn't complete in 3 seconds, use fallback
+    const timeoutId = setTimeout(() => {
+      if (!completed) {
+        completed = true;
         authLog('Profile fetch timed out after 3s, using fallback user');
         setUser(fallbackUser);
+        setLoading(false);
+        initializationComplete.current = true;
+      }
+    }, 3000);
+
+    try {
+      authLog('Starting Supabase query...');
+      const { data, error } = await supabase
+        .from('users')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      // Clear timeout and check if we already timed out
+      clearTimeout(timeoutId);
+      if (completed) {
+        authLog('Query completed but timeout already fired, ignoring result');
         return;
       }
+      completed = true;
 
-      const { data, error } = result;
+      authLog('Query completed', { hasData: !!data, hasError: !!error });
 
       if (error) {
         authLog('Error fetching user profile', { code: error.code, message: error.message });
@@ -165,13 +173,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setUser(fallbackUser);
       }
     } catch (err) {
+      clearTimeout(timeoutId);
+      if (completed) return;
+      completed = true;
+
       const errorMessage = err instanceof Error ? err.message : String(err);
       authLog('Exception in fetchUserProfile', errorMessage);
       setUser(fallbackUser);
     } finally {
-      authLog('fetchUserProfile complete, setting loading to false');
-      setLoading(false);
-      initializationComplete.current = true;
+      if (completed) {
+        authLog('fetchUserProfile complete, setting loading to false');
+        setLoading(false);
+        initializationComplete.current = true;
+      }
     }
   }
 
