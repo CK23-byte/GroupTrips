@@ -95,10 +95,24 @@ export default function DashboardPage() {
     debugLog('loadTrips', 'Loading trips for user', user.id);
 
     try {
+      // Use AbortController-style timeout with flag
+      let timedOut = false;
+      const timeoutId = setTimeout(() => {
+        timedOut = true;
+        debugLog('loadTrips', 'Query timed out after 8s');
+        setLoading(false);
+      }, 8000);
+
       const { data: memberData, error: memberError } = await supabase
         .from('trip_members')
         .select('trip_id')
         .eq('user_id', user.id);
+
+      if (timedOut) {
+        debugLog('loadTrips', 'Query completed after timeout, ignoring');
+        return;
+      }
+      clearTimeout(timeoutId);
 
       debugLog('loadTrips', 'Member data', { count: memberData?.length, error: memberError?.message });
 
@@ -109,7 +123,7 @@ export default function DashboardPage() {
       }
 
       if (memberData && memberData.length > 0) {
-        const tripIds = memberData.map((m) => m.trip_id);
+        const tripIds = memberData.map((m: { trip_id: string }) => m.trip_id);
         debugLog('loadTrips', 'Fetching trips', tripIds);
 
         const { data: tripsData, error: tripsError } = await supabase
@@ -129,7 +143,10 @@ export default function DashboardPage() {
         debugLog('loadTrips', 'No memberships found');
       }
     } catch (err) {
-      console.error('[loadTrips] Unexpected error:', err);
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('[loadTrips] Unexpected error:', errMsg);
+      debugLog('loadTrips', 'Error (possibly timeout)', errMsg);
+      // Don't show error to user for loadTrips - just fail silently and show empty state
     }
 
     setLoading(false);
@@ -507,6 +524,18 @@ function CreateTripModal({
     setLoading(true);
     setError('');
 
+    // Flag-based timeout to prevent indefinite hanging
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      if (!timedOut) {
+        timedOut = true;
+        addDebug('TIMEOUT: Trip creation timed out after 15s');
+        setError('Database connection timed out. Please check your internet connection and try again. If the problem persists, there may be an issue with the database configuration.');
+        setStep('details');
+        setLoading(false);
+      }
+    }, 15000); // 15 second overall timeout
+
     try {
       addDebug(`Creating trip: ${tripData.name}`);
 
@@ -540,11 +569,18 @@ function CreateTripModal({
       };
       addDebug(`Insert data: ${JSON.stringify(insertData)}`);
 
+      addDebug('Sending insert query...');
       const { data: trip, error: tripError } = await supabase
         .from('trips')
         .insert(insertData)
         .select()
         .single();
+
+      // Check if we already timed out
+      if (timedOut) {
+        addDebug('Query completed after timeout, ignoring result');
+        return;
+      }
 
       if (tripError) {
         addDebug(`ERROR creating trip: ${tripError.message} (${tripError.code})`);
@@ -552,17 +588,25 @@ function CreateTripModal({
         setError(`Failed to create trip: ${tripError.message}`);
         setStep('details');
         setLoading(false);
+        clearTimeout(timeoutId);
         return;
       }
 
       addDebug(`Trip created successfully: ${trip.id}`);
 
       // Add creator as admin member
+      addDebug('Adding member...');
       const { error: memberError } = await supabase.from('trip_members').insert({
         trip_id: trip.id,
         user_id: user.id,
         role: 'admin',
       });
+
+      // Check if we timed out during member insert
+      if (timedOut) {
+        addDebug('Member insert completed after timeout');
+        return;
+      }
 
       if (memberError) {
         addDebug(`WARNING: Failed to add member: ${memberError.message}`);
@@ -572,18 +616,24 @@ function CreateTripModal({
         addDebug('Member added successfully');
       }
 
+      clearTimeout(timeoutId);
       setCreatedTrip(trip as Trip);
       setStep('success');
       addDebug('Trip creation complete!');
 
     } catch (err) {
+      clearTimeout(timeoutId);
+      if (timedOut) return;
+
       const errMsg = err instanceof Error ? err.message : String(err);
       addDebug(`EXCEPTION: ${errMsg}`);
       console.error('[createTripAfterPayment] Unexpected error:', err);
       setError(`Unexpected error: ${errMsg}`);
       setStep('details');
     } finally {
-      setLoading(false);
+      if (!timedOut) {
+        setLoading(false);
+      }
     }
   }
 
@@ -644,7 +694,26 @@ function CreateTripModal({
     addDebug('handlePayment called');
     setLoading(true);
 
-    // Get trip data from sessionStorage (saved in handleProceedToPayment)
+    // Use Payment Link first if configured (supports coupon codes)
+    const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
+    if (paymentLink) {
+      addDebug('Using Payment Link (supports coupon codes)');
+      const url = new URL(paymentLink);
+      if (user?.id) {
+        url.searchParams.set('client_reference_id', user.id);
+      }
+      if (user?.email) {
+        url.searchParams.set('prefilled_email', user.email);
+      }
+
+      sessionStorage.setItem('pendingPayment', 'true');
+      addDebug(`Redirecting to Stripe Payment Link: ${url.toString()}`);
+      window.location.href = url.toString();
+      return;
+    }
+
+    // Fallback to API if no Payment Link configured
+    addDebug('No Payment Link configured, using API');
     const savedTripData = sessionStorage.getItem('pendingTripData');
     let tripData: { name: string; groupName: string; description: string; departureTime: string; returnTime?: string } | null = null;
 
@@ -656,9 +725,6 @@ function CreateTripModal({
       }
     }
 
-    // Always try the API first - it stores trip data in Stripe metadata
-    // This ensures trip data survives even if sessionStorage is lost
-    addDebug('Creating checkout session via API');
     try {
       const response = await fetch('/api/create-checkout', {
         method: 'POST',
@@ -688,25 +754,8 @@ function CreateTripModal({
       addDebug(`API error: ${err}`);
     }
 
-    // Fallback to Payment Link if API fails
-    const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
-    if (paymentLink) {
-      addDebug('API failed, falling back to Payment Link');
-      const url = new URL(paymentLink);
-      if (user?.id) {
-        url.searchParams.set('client_reference_id', user.id);
-      }
-      if (user?.email) {
-        url.searchParams.set('prefilled_email', user.email);
-      }
-
-      sessionStorage.setItem('pendingPayment', 'true');
-      addDebug(`Redirecting to Stripe Payment Link: ${url.toString()}`);
-      window.location.href = url.toString();
-    } else {
-      setError('Payment system unavailable. Please try again later.');
-      setLoading(false);
-    }
+    setError('Payment system unavailable. Please try again later.');
+    setLoading(false);
   }
 
   async function copyCode() {
