@@ -235,7 +235,7 @@ export default function LandingPage() {
             © GroupTrips. All rights reserved.
           </p>
           <p className="text-xs text-white/30">
-            v1.4.0
+            v1.5.0
           </p>
         </div>
       </footer>
