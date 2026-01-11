@@ -351,15 +351,13 @@ function CreateTripModal({
   const [returnTime, setReturnTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [debugInfo, setDebugInfo] = useState<string[]>([]);
   const [createdTrip, setCreatedTrip] = useState<Trip | null>(null);
   const [copied, setCopied] = useState(false);
   const hasProcessedPayment = useRef(false);
 
-  // Add debug info
+  // Add debug info (console only)
   function addDebug(msg: string) {
     debugLog('CreateTripModal', msg);
-    setDebugInfo(prev => [...prev, `${new Date().toISOString().split('T')[1].slice(0, 8)}: ${msg}`]);
   }
 
   // Check for payment success on mount
@@ -938,15 +936,6 @@ function CreateTripModal({
             </>
           ) : null}
 
-          {/* Debug info - always show for troubleshooting */}
-          {debugInfo.length > 0 && (
-            <div className="mt-4 p-3 bg-black/30 rounded-lg text-left text-xs font-mono max-h-40 overflow-y-auto">
-              <p className="text-white/50 mb-1">Debug Log:</p>
-              {debugInfo.map((info, i) => (
-                <p key={i} className="text-white/70">{info}</p>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     );
@@ -1154,15 +1143,6 @@ function CreateTripModal({
           </div>
         </form>
 
-        {/* Debug info for troubleshooting */}
-        {debugInfo.length > 0 && (
-          <div className="mt-4 p-3 bg-black/30 rounded-lg text-left text-xs font-mono max-h-32 overflow-y-auto">
-            <p className="text-white/50 mb-1">Debug:</p>
-            {debugInfo.slice(-5).map((info, i) => (
-              <p key={i} className="text-white/70">{info}</p>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

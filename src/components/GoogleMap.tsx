@@ -2,6 +2,88 @@ import { useCallback, useState, useRef, useEffect } from 'react';
 import { GoogleMap, useJsApiLoader, Marker, InfoWindow, Polyline, OverlayView } from '@react-google-maps/api';
 import { MapPin, User, Plane, Camera, AlertTriangle } from 'lucide-react';
 
+// Member marker colors for visual distinction
+const memberColors = [
+  '#3b82f6', // blue
+  '#10b981', // emerald
+  '#f59e0b', // amber
+  '#ef4444', // red
+  '#8b5cf6', // violet
+  '#ec4899', // pink
+  '#06b6d4', // cyan
+  '#f97316', // orange
+];
+
+// Custom member marker component with name label
+function MemberMarker({
+  position,
+  name,
+  isCurrentUser,
+  colorIndex,
+  onClick,
+  isSelected,
+}: {
+  position: { lat: number; lng: number };
+  name: string;
+  isCurrentUser?: boolean;
+  colorIndex: number;
+  onClick?: () => void;
+  isSelected?: boolean;
+}) {
+  const color = isCurrentUser ? '#3b82f6' : memberColors[colorIndex % memberColors.length];
+  const initial = name?.charAt(0)?.toUpperCase() || '?';
+
+  return (
+    <OverlayView
+      position={position}
+      mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+      getPixelPositionOffset={() => ({
+        x: -20,
+        y: -50,
+      })}
+    >
+      <div
+        onClick={onClick}
+        className={`cursor-pointer transition-all hover:scale-110 ${isSelected ? 'scale-110 z-20' : 'z-10'}`}
+        style={{ filter: isSelected ? 'drop-shadow(0 0 8px rgba(255,255,255,0.5))' : 'drop-shadow(0 2px 4px rgba(0,0,0,0.3))' }}
+      >
+        {/* Name label */}
+        <div
+          className="px-2 py-1 rounded-lg text-white text-xs font-semibold whitespace-nowrap mb-1"
+          style={{ backgroundColor: color }}
+        >
+          {isCurrentUser ? 'You' : name?.split(' ')[0] || 'Member'}
+        </div>
+        {/* Avatar circle with arrow */}
+        <div className="flex flex-col items-center">
+          <div
+            className="w-10 h-10 rounded-full flex items-center justify-center text-white font-bold border-3 border-white shadow-lg"
+            style={{ backgroundColor: color }}
+          >
+            {initial}
+          </div>
+          {/* Arrow pointing down */}
+          <div
+            className="w-0 h-0 -mt-1"
+            style={{
+              borderLeft: '8px solid transparent',
+              borderRight: '8px solid transparent',
+              borderTop: `10px solid ${color}`,
+            }}
+          />
+        </div>
+        {/* Pulse effect for current user */}
+        {isCurrentUser && (
+          <div
+            className="absolute top-6 left-1/2 -translate-x-1/2 w-10 h-10 rounded-full animate-ping opacity-30"
+            style={{ backgroundColor: color }}
+          />
+        )}
+      </div>
+    </OverlayView>
+  );
+}
+
 // Custom photo marker component
 function PhotoMarker({
   position,
@@ -82,6 +164,7 @@ interface GoogleMapComponentProps {
   zoom?: number;
   isAdmin?: boolean;
   height?: string;
+  currentUserId?: string;
   onMarkerClick?: (location: ActivityLocation | MemberLocation) => void;
 }
 
@@ -236,6 +319,7 @@ export default function GoogleMapComponent({
   zoom = 12,
   isAdmin = false,
   height = '400px',
+  currentUserId,
   onMarkerClick,
 }: GoogleMapComponentProps) {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
@@ -443,23 +527,19 @@ export default function GoogleMapComponent({
           />
         )}
 
-        {/* Member location markers */}
-        {mapReady && memberLocations.map((member) => (
-          <Marker
+        {/* Member location markers with names */}
+        {mapReady && memberLocations.map((member, index) => (
+          <MemberMarker
             key={member.user_id}
             position={{ lat: member.latitude, lng: member.longitude }}
+            name={member.user?.name || 'Member'}
+            isCurrentUser={member.user_id === currentUserId}
+            colorIndex={index}
+            isSelected={selectedMember?.user_id === member.user_id}
             onClick={() => {
               setSelectedMember(member);
               setSelectedActivity(null);
               onMarkerClick?.(member);
-            }}
-            icon={{
-              path: window.google?.maps?.SymbolPath?.CIRCLE || 0,
-              scale: 12,
-              fillColor: '#3b82f6',
-              fillOpacity: 1,
-              strokeColor: '#ffffff',
-              strokeWeight: 3,
             }}
           />
         ))}

@@ -1151,6 +1151,7 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
         <GoogleMapComponent
           memberLocations={allLocations}
           height="400px"
+          currentUserId={user?.id}
         />
 
         {lastUpdate && (
