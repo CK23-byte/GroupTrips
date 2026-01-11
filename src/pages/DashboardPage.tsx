@@ -484,13 +484,64 @@ function CreateTripModal({
         tryLocalStorageFallback();
       });
 
-    function tryLocalStorageFallback() {
+    async function tryLocalStorageFallback() {
+      // First try to fetch from Supabase pending_trips table
+      if (user?.id) {
+        addDebug(`Checking Supabase pending_trips for user ${user.id}`);
+        const { data: pendingTrip, error: fetchError } = await supabase
+          .from('pending_trips')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+
+        if (!fetchError && pendingTrip) {
+          addDebug(`Found pending trip in Supabase: ${JSON.stringify(pendingTrip)}`);
+
+          // Delete the pending trip from Supabase
+          await supabase.from('pending_trips').delete().eq('user_id', user.id);
+          localStorage.removeItem('pendingTripData');
+          localStorage.removeItem('pendingPayment');
+
+          const tripData = {
+            name: pendingTrip.name,
+            groupName: pendingTrip.group_name || '',
+            description: pendingTrip.description || '',
+            departureTime: pendingTrip.departure_time,
+            returnTime: pendingTrip.return_time,
+          };
+
+          // Populate form fields
+          setName(tripData.name || '');
+          setGroupName(tripData.groupName || '');
+          setDescription(tripData.description || '');
+
+          if (tripData.departureTime) {
+            const dt = new Date(tripData.departureTime);
+            setDepartureDate(dt.toISOString().split('T')[0]);
+            setDepartureTime(dt.toTimeString().slice(0, 5));
+          }
+          if (tripData.returnTime) {
+            const rt = new Date(tripData.returnTime);
+            setReturnDate(rt.toISOString().split('T')[0]);
+            setReturnTime(rt.toTimeString().slice(0, 5));
+          }
+
+          setStep('creating');
+          addDebug('Starting trip creation from Supabase data...');
+          createTripAfterPayment(tripData);
+          return;
+        } else {
+          addDebug(`Supabase fetch failed or empty: ${fetchError?.message || 'no data'}`);
+        }
+      }
+
+      // Fallback to localStorage
       const savedTripData = localStorage.getItem('pendingTripData');
       addDebug(`localStorage fallback: hasTripData=${!!savedTripData}`);
 
       if (!savedTripData) {
-        addDebug('ERROR: No saved trip data found in localStorage!');
-        setError('Trip data was lost. Payment was verified but please re-enter your trip details below.');
+        addDebug('ERROR: No saved trip data found in localStorage or Supabase!');
+        setError('Payment was successful but trip data was lost. This can happen if you used a different browser tab. Please create the trip again - you will NOT be charged twice.');
         setStep('details');
         setLoading(false);
         return;
@@ -498,7 +549,7 @@ function CreateTripModal({
 
       try {
         const tripData = JSON.parse(savedTripData);
-        addDebug(`Parsed trip data: ${JSON.stringify(tripData)}`);
+        addDebug(`Parsed trip data from localStorage: ${JSON.stringify(tripData)}`);
 
         // Clear localStorage to prevent re-triggering
         localStorage.removeItem('pendingTripData');
@@ -522,7 +573,7 @@ function CreateTripModal({
 
         // Set to creating state and create trip
         setStep('creating');
-        addDebug('Starting trip creation...');
+        addDebug('Starting trip creation from localStorage...');
         createTripAfterPayment(tripData);
 
       } catch (err) {
@@ -660,7 +711,7 @@ function CreateTripModal({
     }
   }
 
-  function handleProceedToPayment(e: React.FormEvent) {
+  async function handleProceedToPayment(e: React.FormEvent) {
     e.preventDefault();
     addDebug('handleProceedToPayment called');
 
@@ -708,6 +759,28 @@ function CreateTripModal({
       returnTime: returnDateTimeStr
     };
 
+    // Save to Supabase pending_trips table (survives cross-domain redirects)
+    if (user?.id) {
+      addDebug(`Saving trip data to Supabase pending_trips for user ${user.id}`);
+      const { error: upsertError } = await supabase
+        .from('pending_trips')
+        .upsert({
+          user_id: user.id,
+          name: tripData.name,
+          group_name: tripData.groupName,
+          description: tripData.description,
+          departure_time: tripData.departureTime,
+          return_time: tripData.returnTime,
+        }, { onConflict: 'user_id' });
+
+      if (upsertError) {
+        addDebug(`Failed to save to Supabase: ${upsertError.message}, falling back to localStorage`);
+      } else {
+        addDebug('Trip data saved to Supabase successfully');
+      }
+    }
+
+    // Also save to localStorage as backup
     addDebug(`Saving trip data to localStorage: ${JSON.stringify(tripData)}`);
     localStorage.setItem('pendingTripData', JSON.stringify(tripData));
     setStep('payment');
