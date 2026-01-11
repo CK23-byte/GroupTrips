@@ -67,6 +67,7 @@ interface OutlookScheduleProps {
   tripId: string;
   trip?: Trip | null;
   memberCount?: number;
+  onRefresh?: () => void;
 }
 
 export default function OutlookSchedule({
@@ -77,6 +78,7 @@ export default function OutlookSchedule({
   tripId,
   trip,
   memberCount,
+  onRefresh,
 }: OutlookScheduleProps) {
   // Modal states
   const [showAddModal, setShowAddModal] = useState(false);
@@ -188,11 +190,20 @@ export default function OutlookSchedule({
     setShowAddModal(true);
   };
 
+  // Helper to refresh data
+  const refreshData = () => {
+    if (onRefresh) {
+      onRefresh();
+    } else {
+      window.location.reload();
+    }
+  };
+
   // Handle delete
   const handleDelete = async (item: ScheduleItem) => {
     if (!confirm('Are you sure you want to delete this activity?')) return;
     await supabase.from('schedule_items').delete().eq('id', item.id);
-    window.location.reload();
+    refreshData();
   };
 
   return (
@@ -410,7 +421,7 @@ export default function OutlookSchedule({
           onClose={() => setShowAddModal(false)}
           onAdded={() => {
             setShowAddModal(false);
-            window.location.reload();
+            refreshData();
           }}
         />
       )}
@@ -421,6 +432,7 @@ export default function OutlookSchedule({
           activity={selectedActivity}
           isAdmin={isAdmin}
           onClose={() => setSelectedActivity(null)}
+          onSaved={refreshData}
         />
       )}
 
@@ -433,7 +445,7 @@ export default function OutlookSchedule({
           onClose={() => setShowSuggestionsModal(false)}
           onAdded={() => {
             setShowSuggestionsModal(false);
-            window.location.reload();
+            refreshData();
           }}
         />
       )}
@@ -693,10 +705,12 @@ function ActivityDetailModal({
   activity,
   isAdmin,
   onClose,
+  onSaved,
 }: {
   activity: ScheduleItem;
   isAdmin?: boolean;
   onClose: () => void;
+  onSaved?: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -746,7 +760,10 @@ function ActivityDetailModal({
       return;
     }
 
-    window.location.reload();
+    onClose();
+    if (onSaved) {
+      onSaved();
+    }
   }
 
   function copyToClipboard(text: string) {

@@ -367,6 +367,7 @@ export default function TripLobbyPage() {
                 tripId={tripId!}
                 trip={trip}
                 memberCount={members.length}
+                onRefresh={loadTripData}
               />
             ) : (
               <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} trip={trip} memberCount={members.length} />
