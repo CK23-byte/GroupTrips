@@ -378,7 +378,7 @@ export default function TripLobbyPage() {
           <MembersList members={members} isAdmin={isAdmin} tripId={tripId!} lobbyCode={trip?.lobby_code} />
         )}
         {activeTab === 'location' && (
-          <LocationTab tripId={tripId!} members={members} />
+          <LocationTab tripId={tripId!} members={members} tripEndTime={trip?.return_time} />
         )}
         {activeTab === 'messages' && (
           <MessagesPanel
@@ -1001,7 +1001,7 @@ function locationLog(message: string, data?: unknown) {
   console.log(`[${timestamp}][Location] ${message}`, data !== undefined ? data : '');
 }
 
-function LocationTab({ tripId, members }: { tripId: string; members: TripMember[] }) {
+function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members: TripMember[]; tripEndTime?: string }) {
   const { user } = useAuth();
   const [sharing, setSharing] = useState(false);
   const [locations, setLocations] = useState<MemberLocation[]>([]);
@@ -1011,6 +1011,24 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [watchId, setWatchId] = useState<number | null>(null);
   const [gettingLocation, setGettingLocation] = useState(false);
+
+  // Check if trip has ended + 1 hour (location sharing auto-stops)
+  const now = new Date();
+  const tripEnd = tripEndTime ? new Date(tripEndTime) : null;
+  const autoStopTime = tripEnd ? new Date(tripEnd.getTime() + 60 * 60 * 1000) : null; // +1 hour
+  const isSharingDisabled = autoStopTime ? now > autoStopTime : false;
+
+  // Auto-stop sharing if trip has ended + 1 hour
+  useEffect(() => {
+    if (isSharingDisabled && sharing && watchId !== null) {
+      locationLog('Auto-stopping location sharing (trip ended + 1 hour)');
+      navigator.geolocation.clearWatch(watchId);
+      setWatchId(null);
+      setSharing(false);
+      setMyLocation(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSharingDisabled]);
 
   useEffect(() => {
     locationLog('LocationTab mounted', { tripId, userId: user?.id });
@@ -1231,14 +1249,21 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
           </div>
           <button
             onClick={sharing ? stopSharing : startSharing}
-            disabled={gettingLocation}
+            disabled={gettingLocation || isSharingDisabled}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-colors disabled:opacity-50 ${
-              sharing
+              isSharingDisabled
+                ? 'bg-white/10 text-white/40 cursor-not-allowed'
+                : sharing
                 ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                 : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
             }`}
           >
-            {gettingLocation ? (
+            {isSharingDisabled ? (
+              <>
+                <Navigation className="w-4 h-4" />
+                Trip Ended
+              </>
+            ) : gettingLocation ? (
               <>
                 <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                 Getting location...
@@ -1256,6 +1281,25 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
             )}
           </button>
         </div>
+
+        {/* Info about auto-stop */}
+        {tripEnd && !isSharingDisabled && (
+          <div className="p-3 bg-white/5 border border-white/10 rounded-lg text-white/60 text-sm mb-4">
+            <p>Location sharing automatically stops 1 hour after the trip ends.</p>
+            {autoStopTime && (
+              <p className="text-xs text-white/40 mt-1">
+                Auto-stop: {autoStopTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at {autoStopTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Trip ended message */}
+        {isSharingDisabled && (
+          <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-200/80 text-sm mb-4">
+            This trip has ended. Location sharing is no longer available.
+          </div>
+        )}
 
         {error && (
           <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm mb-4">
