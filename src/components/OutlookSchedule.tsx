@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -87,6 +87,18 @@ export default function OutlookSchedule({
   const [selectedActivity, setSelectedActivity] = useState<ScheduleItem | null>(null);
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
 
+  // Responsive: show fewer days on mobile
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    const checkMobile = () => setIsMobile(window.innerWidth < 640);
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  const daysToShow = isMobile ? 1 : 3;
+
   // Calculate the date range for the trip
   const tripStart = new Date(tripStartDate);
   const tripEnd = tripEndDate ? new Date(tripEndDate) : tripStart;
@@ -102,27 +114,27 @@ export default function OutlookSchedule({
     return tripStart;
   });
 
-  // Get 3 days to display
+  // Get days to display (responsive)
   const displayDates = useMemo(() => {
     const dates: Date[] = [];
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < daysToShow; i++) {
       const date = new Date(viewStartDate);
       date.setDate(date.getDate() + i);
       dates.push(date);
     }
     return dates;
-  }, [viewStartDate]);
+  }, [viewStartDate, daysToShow]);
 
   // Navigate functions
   const goToPrevious = () => {
     const newDate = new Date(viewStartDate);
-    newDate.setDate(newDate.getDate() - 3);
+    newDate.setDate(newDate.getDate() - daysToShow);
     setViewStartDate(newDate);
   };
 
   const goToNext = () => {
     const newDate = new Date(viewStartDate);
-    newDate.setDate(newDate.getDate() + 3);
+    newDate.setDate(newDate.getDate() + daysToShow);
     setViewStartDate(newDate);
   };
 

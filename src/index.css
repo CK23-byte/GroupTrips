@@ -188,6 +188,26 @@ select.input-field option:checked {
   .modal-content {
     @apply mx-2 max-h-[90vh];
   }
+
+  /* Smaller header padding */
+  header {
+    @apply px-4;
+  }
+
+  /* Stack grids vertically on mobile */
+  .grid-cols-2,
+  .grid-cols-3 {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Smaller font sizes for schedule */
+  .text-2xl {
+    @apply text-xl;
+  }
+
+  .text-4xl {
+    @apply text-2xl;
+  }
 }
 
 /* iOS safe area support */

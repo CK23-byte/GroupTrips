@@ -413,14 +413,14 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
+      className={`flex items-center gap-2 px-3 sm:px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
         active
           ? 'text-blue-400 border-b-2 border-blue-400'
           : 'text-white/50 hover:text-white/80'
       }`}
     >
       {icon}
-      {label}
+      <span className="hidden sm:inline">{label}</span>
     </button>
   );
 }
