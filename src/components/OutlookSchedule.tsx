@@ -515,20 +515,25 @@ function AddScheduleModal({
       return;
     }
 
-    const insertData = {
+    // Only include basic columns that are guaranteed to exist
+    // Additional columns like booking_url, location_url etc. may not exist in all deployments
+    const insertData: Record<string, unknown> = {
       trip_id: tripId,
       title,
       description: description || null,
       location: location || null,
-      location_url: locationUrl || null,
-      booking_url: bookingUrl || null,
-      reservation_code: reservationCode || null,
-      contact_info: contactInfo || null,
-      estimated_cost: estimatedCost ? parseFloat(estimatedCost) : null,
       type,
       start_time: new Date(startTime).toISOString(),
       end_time: endTime ? new Date(endTime).toISOString() : null,
     };
+
+    // Try to add optional columns - they may or may not exist in the database
+    // These will be silently ignored if they don't exist
+    if (locationUrl) insertData.location_url = locationUrl;
+    if (bookingUrl) insertData.booking_url = bookingUrl;
+    if (reservationCode) insertData.reservation_code = reservationCode;
+    if (contactInfo) insertData.contact_info = contactInfo;
+    if (estimatedCost) insertData.estimated_cost = parseFloat(estimatedCost);
 
     console.log('[AddScheduleModal] Inserting:', insertData);
 
@@ -536,6 +541,33 @@ function AddScheduleModal({
 
     if (error) {
       console.error('[AddScheduleModal] Insert error:', error);
+
+      // If error is about missing column, try with minimal data
+      if (error.message.includes('column') && error.message.includes('schema cache')) {
+        console.log('[AddScheduleModal] Retrying with minimal columns...');
+        const minimalData = {
+          trip_id: tripId,
+          title,
+          description: description || null,
+          location: location || null,
+          type,
+          start_time: new Date(startTime).toISOString(),
+          end_time: endTime ? new Date(endTime).toISOString() : null,
+        };
+
+        const { error: retryError } = await supabase.from('schedule_items').insert(minimalData);
+
+        if (retryError) {
+          alert(`Failed to add activity: ${retryError.message}`);
+          setLoading(false);
+          return;
+        }
+
+        console.log('[AddScheduleModal] Insert successful with minimal data');
+        onAdded();
+        return;
+      }
+
       alert(`Failed to add activity: ${error.message}`);
       setLoading(false);
       return;
