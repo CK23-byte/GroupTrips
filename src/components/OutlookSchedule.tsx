@@ -465,8 +465,7 @@ export default function OutlookSchedule({
           tripId={tripId}
           trip={trip}
           memberCount={memberCount}
-          onClose={() => setShowSuggestionsModal(false)}
-          onAdded={() => {
+          onClose={() => {
             setShowSuggestionsModal(false);
             refreshData();
           }}
@@ -1190,14 +1189,12 @@ function AISuggestionsModal({
   trip,
   memberCount,
   onClose,
-  onAdded,
   onRefreshCalendar,
 }: {
   tripId: string;
   trip?: Trip | null;
   memberCount?: number;
   onClose: () => void;
-  onAdded: () => void;
   onRefreshCalendar?: () => void;
 }) {
   // Pre-fill with trip data
