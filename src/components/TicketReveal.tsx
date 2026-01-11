@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { QrCode, Plane, Train, Bus, MapPin, AlertCircle } from 'lucide-react';
+import { QrCode, Plane, Train, Bus, MapPin, AlertCircle, Ticket as TicketIcon } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Ticket, TicketRevealStatus, Trip } from '../types';
 
@@ -11,10 +11,11 @@ interface TicketRevealProps {
   userName?: string;
 }
 
-const typeIcons = {
+const typeIcons: Record<Ticket['type'], typeof Plane> = {
   flight: Plane,
   train: Train,
   bus: Bus,
+  event: TicketIcon,
   other: MapPin,
 };
 
@@ -108,19 +109,23 @@ export default function TicketReveal({
                 <TypeIcon className="w-8 h-8 md:w-10 md:h-10" />
               </div>
               <div className="text-right">
-                <p className="text-fuchsia-300 text-sm font-medium">
-                  {new Date(ticket.departure_time).toLocaleTimeString('en-US', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </p>
-                <p className="text-xl md:text-2xl font-bold">
-                  {new Date(ticket.departure_time).toLocaleDateString('en-US', {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric',
-                  })}
-                </p>
+                {ticket.departure_time && (
+                  <>
+                    <p className="text-fuchsia-300 text-sm font-medium">
+                      {new Date(ticket.departure_time).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                    <p className="text-xl md:text-2xl font-bold">
+                      {new Date(ticket.departure_time).toLocaleDateString('en-US', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </p>
+                  </>
+                )}
               </div>
             </div>
 
@@ -215,26 +220,30 @@ export default function TicketReveal({
               <TypeIcon className="w-8 h-8 md:w-10 md:h-10" />
             </div>
             <div className="text-right">
-              <p className="text-fuchsia-300 text-sm font-medium">
-                {new Date(ticket.departure_time).toLocaleTimeString('en-US', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </p>
-              <p className="text-xl md:text-2xl font-bold">
-                {new Date(ticket.departure_time).toLocaleDateString('en-US', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })}
-              </p>
+              {ticket.departure_time && (
+                <>
+                  <p className="text-fuchsia-300 text-sm font-medium">
+                    {new Date(ticket.departure_time).toLocaleTimeString('en-US', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                  <p className="text-xl md:text-2xl font-bold">
+                    {new Date(ticket.departure_time).toLocaleDateString('en-US', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </p>
+                </>
+              )}
             </div>
           </div>
 
           {/* Event/Trip name */}
           <div className="mb-6">
             <p className="text-fuchsia-300 text-sm font-medium uppercase tracking-wider mb-1">
-              {ticket.type === 'flight' ? 'Flight' : ticket.type === 'train' ? 'Train Journey' : 'Trip'}
+              {ticket.type === 'flight' ? 'Flight' : ticket.type === 'train' ? 'Train Journey' : ticket.type === 'event' ? 'Event' : 'Trip'}
             </p>
             <h2 className="text-2xl md:text-3xl font-bold">
               {trip?.name || ticket.carrier || 'Your Journey'}

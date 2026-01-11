@@ -446,18 +446,21 @@ function TicketUploadModal({
 
       // Always insert new ticket (multiple tickets per person are allowed)
       console.log('[TicketUpload] Inserting new ticket...');
+
+      // For event tickets, set sensible defaults for transport fields
+      const isEvent = ticketType === 'event';
       const { error } = await supabase.from('tickets').insert({
         trip_id: tripId,
         member_id: selectedMemberId,
         type: ticketType,
         carrier: carrier || null,
-        flight_number: flightNumber || null,
-        departure_location: departureLocation || null,
-        arrival_location: arrivalLocation || null,
+        flight_number: isEvent ? null : (flightNumber || null),
+        departure_location: isEvent ? (carrier || 'Event') : (departureLocation || 'TBD'),
+        arrival_location: arrivalLocation || (isEvent ? 'Event Location' : 'TBD'),
         departure_time: departureTime ? new Date(departureTime).toISOString() : null,
         arrival_time: arrivalTime ? new Date(arrivalTime).toISOString() : null,
         seat_number: seatNumber || null,
-        gate: gate || null,
+        gate: isEvent ? null : (gate || null),
         booking_reference: bookingReference || null,
         full_ticket_url: fullTicketUrl,
       });
@@ -583,69 +586,91 @@ function TicketUploadModal({
                     <option value="flight">Flight</option>
                     <option value="train">Train</option>
                     <option value="bus">Bus</option>
+                    <option value="event">Event / Festival</option>
                     <option value="other">Other</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-white/70 mb-2">
-                    Carrier
+                    {ticketType === 'event' ? 'Venue / Organizer' : 'Carrier'}
                   </label>
                   <input
                     type="text"
                     value={carrier}
                     onChange={(e) => setCarrier(e.target.value)}
                     className="input-field"
-                    placeholder="KLM, Ryanair, etc."
+                    placeholder={ticketType === 'event' ? 'Festival name, venue' : 'KLM, Ryanair, etc.'}
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-white/70 mb-2">
-                    Flight/Train Number
-                  </label>
-                  <input
-                    type="text"
-                    value={flightNumber}
-                    onChange={(e) => setFlightNumber(e.target.value)}
-                    className="input-field"
-                    placeholder="KL1234, BA567, IC621"
-                  />
-                </div>
-              </div>
+              {/* Transport-specific fields */}
+              {ticketType !== 'event' && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-white/70 mb-2">
+                        Flight/Train Number
+                      </label>
+                      <input
+                        type="text"
+                        value={flightNumber}
+                        onChange={(e) => setFlightNumber(e.target.value)}
+                        className="input-field"
+                        placeholder="KL1234, BA567, IC621"
+                      />
+                    </div>
+                  </div>
 
-              <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-white/70 mb-2">
+                        Departure
+                      </label>
+                      <input
+                        type="text"
+                        value={departureLocation}
+                        onChange={(e) => setDepartureLocation(e.target.value)}
+                        className="input-field"
+                        placeholder="Amsterdam Schiphol"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-white/70 mb-2">
+                        Arrival
+                      </label>
+                      <input
+                        type="text"
+                        value={arrivalLocation}
+                        onChange={(e) => setArrivalLocation(e.target.value)}
+                        className="input-field"
+                        placeholder="Barcelona"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Event-specific fields */}
+              {ticketType === 'event' && (
                 <div>
                   <label className="block text-sm font-medium text-white/70 mb-2">
-                    Departure
-                  </label>
-                  <input
-                    type="text"
-                    value={departureLocation}
-                    onChange={(e) => setDepartureLocation(e.target.value)}
-                    className="input-field"
-                    placeholder="Amsterdam Schiphol"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white/70 mb-2">
-                    Arrival
+                    Location / Venue
                   </label>
                   <input
                     type="text"
                     value={arrivalLocation}
                     onChange={(e) => setArrivalLocation(e.target.value)}
                     className="input-field"
-                    placeholder="Barcelona"
+                    placeholder="Event location"
                   />
                 </div>
-              </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-white/70 mb-2">
-                    Departure Time
+                    {ticketType === 'event' ? 'Event Start' : 'Departure Time'}
                   </label>
                   <input
                     type="datetime-local"
@@ -656,7 +681,7 @@ function TicketUploadModal({
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-white/70 mb-2">
-                    Arrival Time
+                    {ticketType === 'event' ? 'Event End' : 'Arrival Time'}
                   </label>
                   <input
                     type="datetime-local"

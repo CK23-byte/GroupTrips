@@ -2,7 +2,7 @@
 
 export async function extractTicketData(imageFile: File): Promise<{
   passenger_name: string | null;
-  ticket_type: 'flight' | 'train' | 'bus' | 'other';
+  ticket_type: 'flight' | 'train' | 'bus' | 'event' | 'other';
   carrier: string | null;
   flight_number: string | null;
   departure_location: string | null;
@@ -13,6 +13,8 @@ export async function extractTicketData(imageFile: File): Promise<{
   gate: string | null;
   booking_reference: string | null;
   terminal: string | null;
+  event_name: string | null; // For event tickets
+  venue: string | null; // For event tickets
 }> {
   const base64 = await fileToBase64(imageFile);
 
