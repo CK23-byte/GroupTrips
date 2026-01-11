@@ -1401,6 +1401,7 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
   const { user } = useAuth();
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [uploadError, setUploadError] = useState('');
   const [showAftermovie, setShowAftermovie] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -1537,29 +1538,31 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
 
     setUploading(true);
     setUploadError('');
+    const fileArray = Array.from(files);
+    setUploadProgress({ current: 0, total: fileArray.length });
 
-    console.log('[MediaTab] Starting upload of', files.length, 'files');
+    console.log('[MediaTab] Starting upload of', fileArray.length, 'files');
 
-    for (const file of Array.from(files)) {
+    // Upload function for a single file
+    async function uploadSingleFile(file: File, index: number): Promise<boolean> {
       try {
         const fileExt = file.name.split('.').pop()?.toLowerCase();
-        const fileName = `${tripId}/${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+        const fileName = `${tripId}/${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
         const isVideo = file.type.startsWith('video/');
 
         console.log('[MediaTab] Uploading file:', fileName, 'Type:', file.type);
 
         // Upload to storage
-        const { error: uploadError, data: uploadData } = await supabase.storage
+        const { error: storageError, data: uploadData } = await supabase.storage
           .from('trip-media')
           .upload(fileName, file, {
             cacheControl: '3600',
             upsert: false
           });
 
-        if (uploadError) {
-          console.error('[MediaTab] Storage upload error:', uploadError);
-          setUploadError(`Upload failed: ${uploadError.message}`);
-          continue;
+        if (storageError) {
+          console.error('[MediaTab] Storage upload error:', storageError);
+          return false;
         }
 
         console.log('[MediaTab] Storage upload success:', uploadData);
@@ -1568,8 +1571,6 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
         const { data: { publicUrl } } = supabase.storage
           .from('trip-media')
           .getPublicUrl(fileName);
-
-        console.log('[MediaTab] Public URL:', publicUrl);
 
         // Save to database with geolocation
         const { error: dbError } = await supabase.from('trip_media').insert({
@@ -1583,18 +1584,42 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
 
         if (dbError) {
           console.error('[MediaTab] Database insert error:', dbError);
-          setUploadError(`Database error: ${dbError.message}`);
-        } else {
-          console.log('[MediaTab] Media saved to database');
+          return false;
         }
+
+        return true;
       } catch (err) {
         console.error('[MediaTab] Unexpected upload error:', err);
-        setUploadError(`Unexpected error: ${String(err)}`);
+        return false;
       }
+    }
+
+    // Upload in parallel batches of 3 to prevent overload
+    const batchSize = 3;
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < fileArray.length; i += batchSize) {
+      const batch = fileArray.slice(i, i + batchSize);
+      const results = await Promise.all(
+        batch.map((file, idx) => uploadSingleFile(file, i + idx))
+      );
+
+      results.forEach(success => {
+        if (success) successCount++;
+        else failCount++;
+      });
+
+      setUploadProgress({ current: Math.min(i + batchSize, fileArray.length), total: fileArray.length });
+    }
+
+    if (failCount > 0) {
+      setUploadError(`${failCount} of ${fileArray.length} files failed to upload`);
     }
 
     await loadMedia();
     setUploading(false);
+    setUploadProgress({ current: 0, total: 0 });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -1761,7 +1786,7 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
           {uploading ? (
             <span className="flex items-center gap-2">
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Uploading...
+              Uploading {uploadProgress.current}/{uploadProgress.total}...
             </span>
           ) : (
             'Upload Media'
@@ -1802,7 +1827,7 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
             {uploading ? (
               <span className="flex items-center gap-2">
                 <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Uploading...
+                {uploadProgress.current}/{uploadProgress.total}
               </span>
             ) : (
               'Add Media'
