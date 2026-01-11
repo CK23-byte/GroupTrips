@@ -41,6 +41,7 @@ import type {
 import { getTicketRevealStatus } from '../types';
 import TicketReveal from '../components/TicketReveal';
 import Timeline from '../components/Timeline';
+import OutlookSchedule from '../components/OutlookSchedule';
 import MembersList from '../components/MembersList';
 import MessagesPanel from '../components/MessagesPanel';
 import GoogleMapComponent from '../components/GoogleMap';
@@ -69,6 +70,7 @@ export default function TripLobbyPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [copied, setCopied] = useState(false);
+  const [scheduleView, setScheduleView] = useState<'calendar' | 'timeline'>('calendar');
 
   useEffect(() => {
     if (tripId && user) {
@@ -328,7 +330,45 @@ export default function TripLobbyPage() {
           />
         )}
         {activeTab === 'schedule' && (
-          <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} trip={trip} memberCount={members.length} />
+          <div className="space-y-4">
+            {/* View toggle */}
+            <div className="flex justify-end">
+              <div className="inline-flex bg-white/5 rounded-lg p-1">
+                <button
+                  onClick={() => setScheduleView('calendar')}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    scheduleView === 'calendar'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-white/60 hover:text-white'
+                  }`}
+                >
+                  Calendar
+                </button>
+                <button
+                  onClick={() => setScheduleView('timeline')}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    scheduleView === 'timeline'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-white/60 hover:text-white'
+                  }`}
+                >
+                  Timeline
+                </button>
+              </div>
+            </div>
+
+            {/* Schedule views */}
+            {scheduleView === 'calendar' ? (
+              <OutlookSchedule
+                items={schedule}
+                tripStartDate={trip?.departure_time || new Date().toISOString()}
+                tripEndDate={trip?.return_time}
+                isAdmin={isAdmin}
+              />
+            ) : (
+              <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} trip={trip} memberCount={members.length} />
+            )}
+          </div>
         )}
         {activeTab === 'members' && (
           <MembersList members={members} isAdmin={isAdmin} tripId={tripId!} lobbyCode={trip?.lobby_code} />
