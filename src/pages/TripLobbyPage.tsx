@@ -364,6 +364,9 @@ export default function TripLobbyPage() {
                 tripStartDate={trip?.departure_time || new Date().toISOString()}
                 tripEndDate={trip?.return_time}
                 isAdmin={isAdmin}
+                tripId={tripId!}
+                trip={trip}
+                memberCount={members.length}
               />
             ) : (
               <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} trip={trip} memberCount={members.length} />
