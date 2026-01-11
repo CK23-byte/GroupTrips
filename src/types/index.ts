@@ -40,7 +40,9 @@ export interface Ticket {
   trip_id: string;
   member_id: string;
   type: 'flight' | 'train' | 'bus' | 'other';
+  label?: string; // e.g., "Outbound", "Return", "Day Trip"
   carrier?: string;
+  flight_number?: string; // e.g., "KL1234", "BA567"
   departure_location: string;
   arrival_location: string;
   departure_time: string;

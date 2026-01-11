@@ -247,7 +247,10 @@ export default function TicketReveal({
               Ticket
             </p>
             <p className="text-lg">
-              {ticket.carrier ? `${ticket.carrier} • ` : ''}{ticket.departure_location} → {ticket.arrival_location}
+              {ticket.carrier && <span>{ticket.carrier}</span>}
+              {ticket.flight_number && <span className="font-mono ml-1">{ticket.flight_number}</span>}
+              {(ticket.carrier || ticket.flight_number) && <span className="mx-2">•</span>}
+              {ticket.departure_location} → {ticket.arrival_location}
             </p>
           </div>
 

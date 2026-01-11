@@ -28,19 +28,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         messages: [
           {
             role: 'system',
-            content: `You are a ticket data extractor. Extract the following information from flight/train tickets:
+            content: `You are a ticket data extractor. Extract the following information from flight/train/bus tickets:
 - passenger_name: Full name of the passenger
 - ticket_type: "flight", "train", "bus", or "other"
-- carrier: Airline or train company name
-- departure_location: City or station name
-- arrival_location: City or station name
-- departure_time: ISO 8601 format (YYYY-MM-DDTHH:mm:ss)
+- carrier: Airline or transport company name (e.g., "KLM", "Ryanair", "NS")
+- flight_number: Flight/train number (e.g., "KL1234", "BA567", "IC621")
+- departure_location: City, airport code, or station name (e.g., "Amsterdam (AMS)", "London Heathrow")
+- arrival_location: City, airport code, or station name
+- departure_time: ISO 8601 format (YYYY-MM-DDTHH:mm:ss) - include timezone if visible
 - arrival_time: ISO 8601 format if available
-- seat_number: Seat assignment if visible
-- gate: Gate number if visible
-- booking_reference: Booking/confirmation code
+- seat_number: Seat assignment if visible (e.g., "12A", "Window")
+- gate: Gate or platform number if visible
+- booking_reference: Booking/confirmation/PNR code (e.g., "ABC123")
+- terminal: Terminal number if visible
 
-Return ONLY valid JSON with these fields. Use null for missing values.`
+Return ONLY valid JSON with these fields. Use null for missing values. Be thorough - check the entire image for all details.`
           },
           {
             role: 'user',
