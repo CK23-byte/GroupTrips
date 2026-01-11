@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -56,8 +56,8 @@ const typeIcons: Record<string, React.ReactNode> = {
   meeting: <Users className="w-4 h-4" />,
 };
 
-// Hours to display (6 AM to midnight)
-const HOURS = Array.from({ length: 19 }, (_, i) => i + 6); // 6-24
+// Hours to display (full 24 hours: 0-23 + 24 for midnight display)
+const HOURS = Array.from({ length: 25 }, (_, i) => i); // 0-24
 
 interface OutlookScheduleProps {
   items: ScheduleItem[];
@@ -87,6 +87,9 @@ export default function OutlookSchedule({
   const [selectedActivity, setSelectedActivity] = useState<ScheduleItem | null>(null);
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
 
+  // Ref for scroll container
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+
   // Responsive: show fewer days on mobile
   const [isMobile, setIsMobile] = useState(false);
 
@@ -95,6 +98,14 @@ export default function OutlookSchedule({
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Scroll to 6am on mount
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      // Each hour is 48px, scroll to 6am (6 * 48 = 288px)
+      scrollContainerRef.current.scrollTop = 6 * 48;
+    }
   }, []);
 
   const daysToShow = isMobile ? 1 : 3;
@@ -184,9 +195,9 @@ export default function OutlookSchedule({
       durationHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
     }
 
-    // Position from top (relative to 6 AM start)
-    const topPercent = ((startHour - 6) / 18) * 100;
-    const heightPercent = (durationHours / 18) * 100;
+    // Position from top (relative to 0 AM start, 24 hours total)
+    const topPercent = (startHour / 24) * 100;
+    const heightPercent = (durationHours / 24) * 100;
 
     return {
       top: `${Math.max(0, topPercent)}%`,
@@ -271,8 +282,8 @@ export default function OutlookSchedule({
         )}
       </div>
 
-      {/* Calendar grid */}
-      <div className="flex overflow-x-auto">
+      {/* Calendar grid - scrollable container */}
+      <div ref={scrollContainerRef} className="flex overflow-x-auto overflow-y-auto max-h-[600px]">
         {/* Time labels column */}
         <div className="w-16 flex-shrink-0 border-r border-white/10">
           <div className="h-16 border-b border-white/10" /> {/* Header spacer */}
@@ -329,7 +340,7 @@ export default function OutlookSchedule({
                     onClick={(e) => {
                       const rect = e.currentTarget.getBoundingClientRect();
                       const y = e.clientY - rect.top;
-                      const hour = Math.floor(y / 48) + 6;
+                      const hour = Math.floor(y / 48); // Now starts from 0
                       handleCalendarClick(dateStr, hour);
                     }}
                   />
@@ -459,6 +470,7 @@ export default function OutlookSchedule({
             setShowSuggestionsModal(false);
             refreshData();
           }}
+          onRefreshCalendar={refreshData}
         />
       )}
     </div>
@@ -1168,6 +1180,9 @@ interface AIActivity {
   best_time: string;
   booking_url?: string;
   location?: string;
+  address?: string;
+  rating?: number;
+  tips?: string;
 }
 
 function AISuggestionsModal({
@@ -1176,12 +1191,14 @@ function AISuggestionsModal({
   memberCount,
   onClose,
   onAdded,
+  onRefreshCalendar,
 }: {
   tripId: string;
   trip?: Trip | null;
   memberCount?: number;
   onClose: () => void;
   onAdded: () => void;
+  onRefreshCalendar?: () => void;
 }) {
   // Pre-fill with trip data
   const [location, setLocation] = useState(trip?.destination || '');
@@ -1222,6 +1239,13 @@ function AISuggestionsModal({
     setLoading(false);
   }
 
+  // Generate a search URL for TripAdvisor/Google if no booking_url provided
+  function getSearchUrl(activityTitle: string, activityLocation: string): string {
+    const searchQuery = encodeURIComponent(`${activityTitle} ${activityLocation}`);
+    // Use TripAdvisor search as primary, fallback to Google
+    return `https://www.tripadvisor.com/Search?q=${searchQuery}`;
+  }
+
   async function handleAddActivity(activity: AIActivity, index: number) {
     setAdding(index);
 
@@ -1238,13 +1262,25 @@ function AISuggestionsModal({
     const endTime = new Date(activityDate);
     endTime.setHours(endTime.getHours() + activity.duration_hours);
 
+    // Use provided booking_url or generate a search URL
+    const bookingUrl = activity.booking_url || getSearchUrl(activity.title, activity.location || location);
+
+    // Build description with tips if available
+    let fullDescription = activity.description;
+    if (activity.tips) {
+      fullDescription += `\n\nTip: ${activity.tips}`;
+    }
+    if (activity.rating) {
+      fullDescription += `\n\nRating: ${activity.rating}/5`;
+    }
+
     await supabase.from('schedule_items').insert({
       trip_id: tripId,
       title: activity.title,
-      description: activity.description,
+      description: fullDescription,
       type: activity.type,
-      location: activity.location || location,
-      booking_url: activity.booking_url || null,
+      location: activity.address || activity.location || location,
+      booking_url: bookingUrl,
       estimated_cost: activity.estimated_cost,
       start_time: activityDate.toISOString(),
       end_time: endTime.toISOString(),
@@ -1254,8 +1290,9 @@ function AISuggestionsModal({
     setSuggestions(suggestions.filter((_, i) => i !== index));
     setAdding(null);
 
-    if (suggestions.length === 1) {
-      onAdded();
+    // Refresh the calendar immediately after adding (without closing modal)
+    if (onRefreshCalendar) {
+      onRefreshCalendar();
     }
   }
 
@@ -1363,40 +1400,78 @@ function AISuggestionsModal({
               Click on an activity to add it to your schedule:
             </p>
 
-            {suggestions.map((activity, index) => (
-              <div
-                key={index}
-                className="p-4 bg-white/5 border border-white/10 rounded-xl hover:border-fuchsia-500/50 transition-colors"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className={`p-1.5 rounded-lg bg-gradient-to-br ${typeColorsGradient[activity.type] || 'from-gray-500 to-gray-600'}`}>
-                        {typeIcons[activity.type] || <Clock className="w-4 h-4" />}
-                      </span>
-                      <h4 className="font-semibold">{activity.title}</h4>
+            {suggestions.map((activity, index) => {
+              // Generate fallback search URL
+              const viewUrl = activity.booking_url || `https://www.tripadvisor.com/Search?q=${encodeURIComponent(`${activity.title} ${activity.location || location}`)}`;
+
+              return (
+                <div
+                  key={index}
+                  className="p-4 bg-white/5 border border-white/10 rounded-xl hover:border-fuchsia-500/50 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`p-1.5 rounded-lg bg-gradient-to-br ${typeColorsGradient[activity.type] || 'from-gray-500 to-gray-600'}`}>
+                          {typeIcons[activity.type] || <Clock className="w-4 h-4" />}
+                        </span>
+                        <h4 className="font-semibold">{activity.title}</h4>
+                        {activity.rating && (
+                          <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">
+                            ⭐ {activity.rating}/5
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-sm text-white/60 mb-2">{activity.description}</p>
+
+                      {/* Location/Address */}
+                      {(activity.address || activity.location) && (
+                        <p className="text-xs text-white/50 mb-2 flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />
+                          {activity.address || activity.location}
+                        </p>
+                      )}
+
+                      {/* Tip */}
+                      {activity.tips && (
+                        <p className="text-xs text-fuchsia-400/80 mb-2 italic">
+                          💡 {activity.tips}
+                        </p>
+                      )}
+
+                      <div className="flex flex-wrap items-center gap-3 text-xs text-white/40">
+                        <span>⏱️ {activity.duration_hours}h</span>
+                        <span>💰 €{activity.estimated_cost}/person</span>
+                        <span>🌅 Best: {activity.best_time}</span>
+
+                        {/* View Details link */}
+                        <a
+                          href={viewUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <ExternalLink className="w-3 h-3" />
+                          View Details
+                        </a>
+                      </div>
                     </div>
-                    <p className="text-sm text-white/60 mb-2">{activity.description}</p>
-                    <div className="flex flex-wrap gap-3 text-xs text-white/40">
-                      <span>⏱️ {activity.duration_hours}h</span>
-                      <span>💰 €{activity.estimated_cost}/person</span>
-                      <span>🌅 Best: {activity.best_time}</span>
-                    </div>
+                    <button
+                      onClick={() => handleAddActivity(activity, index)}
+                      disabled={adding !== null}
+                      className="btn-primary text-sm py-2 px-4"
+                    >
+                      {adding === index ? (
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : (
+                        <Plus className="w-4 h-4" />
+                      )}
+                    </button>
                   </div>
-                  <button
-                    onClick={() => handleAddActivity(activity, index)}
-                    disabled={adding !== null}
-                    className="btn-primary text-sm py-2 px-4"
-                  >
-                    {adding === index ? (
-                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <Plus className="w-4 h-4" />
-                    )}
-                  </button>
                 </div>
-              </div>
-            ))}
+              );
+            })}
 
             <div className="flex gap-3 pt-4">
               <button onClick={onClose} className="btn-secondary flex-1">
