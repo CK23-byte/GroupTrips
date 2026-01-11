@@ -508,7 +508,14 @@ function AddScheduleModal({
     e.preventDefault();
     setLoading(true);
 
-    await supabase.from('schedule_items').insert({
+    // Validate start_time
+    if (!startTime) {
+      alert('Please select a start time');
+      setLoading(false);
+      return;
+    }
+
+    const insertData = {
       trip_id: tripId,
       title,
       description: description || null,
@@ -521,8 +528,20 @@ function AddScheduleModal({
       type,
       start_time: new Date(startTime).toISOString(),
       end_time: endTime ? new Date(endTime).toISOString() : null,
-    });
+    };
 
+    console.log('[AddScheduleModal] Inserting:', insertData);
+
+    const { error } = await supabase.from('schedule_items').insert(insertData);
+
+    if (error) {
+      console.error('[AddScheduleModal] Insert error:', error);
+      alert(`Failed to add activity: ${error.message}`);
+      setLoading(false);
+      return;
+    }
+
+    console.log('[AddScheduleModal] Insert successful');
     onAdded();
   }
 
