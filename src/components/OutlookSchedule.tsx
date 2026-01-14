@@ -1587,6 +1587,7 @@ function AIImportModal({
 
   async function handleAddItem(item: ParsedItem, index: number) {
     setAdding(index);
+    setError('');
 
     // Map type to valid schedule item type
     const typeMap: Record<string, string> = {
@@ -1598,14 +1599,37 @@ function AIImportModal({
     };
     const scheduleType = typeMap[item.type] || 'activity';
 
+    // Ensure start_time is a valid ISO string
+    let startTimeISO: string;
+    let endTimeISO: string | null = null;
+
+    try {
+      startTimeISO = new Date(item.start_time).toISOString();
+      if (item.end_time) {
+        endTimeISO = new Date(item.end_time).toISOString();
+      }
+    } catch (e) {
+      console.error('[AIImport] Invalid date format:', item.start_time, e);
+      setError(`Ongeldige datum: ${item.start_time}`);
+      setAdding(null);
+      return;
+    }
+
+    console.log('[AIImport] Adding item:', {
+      title: item.title,
+      type: scheduleType,
+      start_time: startTimeISO,
+      end_time: endTimeISO,
+    });
+
     const insertData: Record<string, unknown> = {
       trip_id: tripId,
       title: item.title,
       description: item.description || null,
       location: item.location || null,
       type: scheduleType,
-      start_time: item.start_time,
-      end_time: item.end_time || null,
+      start_time: startTimeISO,
+      end_time: endTimeISO,
     };
 
     // Add optional fields
@@ -1614,28 +1638,47 @@ function AIImportModal({
     if (item.reservation_code) insertData.reservation_code = item.reservation_code;
     if (item.contact_info) insertData.contact_info = item.contact_info;
 
-    const { error } = await supabase.from('schedule_items').insert(insertData);
+    const { error: insertError } = await supabase.from('schedule_items').insert(insertData);
 
-    if (error) {
+    if (insertError) {
+      console.error('[AIImport] Insert error:', insertError);
+
       // Try with minimal data if column error
-      if (error.message.includes('column')) {
+      if (insertError.message.includes('column')) {
+        console.log('[AIImport] Retrying with minimal data...');
         const minimalData = {
           trip_id: tripId,
           title: item.title,
           description: item.description || null,
           location: item.location || null,
           type: scheduleType,
-          start_time: item.start_time,
-          end_time: item.end_time || null,
+          start_time: startTimeISO,
+          end_time: endTimeISO,
         };
-        await supabase.from('schedule_items').insert(minimalData);
+        const { error: retryError } = await supabase.from('schedule_items').insert(minimalData);
+
+        if (retryError) {
+          console.error('[AIImport] Retry also failed:', retryError);
+          setError(`Kon niet toevoegen: ${retryError.message}`);
+          setAdding(null);
+          return;
+        }
+        console.log('[AIImport] Retry succeeded');
+      } else {
+        setError(`Kon niet toevoegen: ${insertError.message}`);
+        setAdding(null);
+        return;
       }
+    } else {
+      console.log('[AIImport] Insert succeeded');
     }
 
     setAdding(null);
     setAddedItems(prev => new Set(prev).add(index));
 
+    // Refresh the calendar immediately
     if (onRefreshCalendar) {
+      console.log('[AIImport] Refreshing calendar...');
       onRefreshCalendar();
     }
   }
@@ -1742,6 +1785,12 @@ Referentie: ABC123456`}
                 </button>
               )}
             </div>
+
+            {error && (
+              <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm">
+                {error}
+              </div>
+            )}
 
             {parsedItems.map((item, index) => {
               const isAdded = addedItems.has(index);
