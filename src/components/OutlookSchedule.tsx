@@ -156,20 +156,51 @@ export default function OutlookSchedule({
     setViewStartDate(new Date());
   };
 
-  // Group items by date
+  // Separate accommodations from regular items
+  const { accommodations, regularItems } = useMemo(() => {
+    const acc: ScheduleItem[] = [];
+    const reg: ScheduleItem[] = [];
+
+    items.forEach(item => {
+      if (item.type === 'accommodation') {
+        acc.push(item);
+      } else {
+        reg.push(item);
+      }
+    });
+
+    return { accommodations: acc, regularItems: reg };
+  }, [items]);
+
+  // Group regular items by date (excluding accommodations)
   const itemsByDate = useMemo(() => {
     const grouped: Record<string, ScheduleItem[]> = {};
 
     displayDates.forEach(date => {
       const dateStr = date.toISOString().split('T')[0];
-      grouped[dateStr] = items.filter(item => {
+      grouped[dateStr] = regularItems.filter(item => {
         const itemDate = new Date(item.start_time).toISOString().split('T')[0];
         return itemDate === dateStr;
       }).sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
     });
 
     return grouped;
-  }, [items, displayDates]);
+  }, [regularItems, displayDates]);
+
+  // Get accommodations that overlap with displayed dates
+  const visibleAccommodations = useMemo(() => {
+    const startRange = displayDates[0];
+    const endRange = displayDates[displayDates.length - 1];
+    endRange.setHours(23, 59, 59);
+
+    return accommodations.filter(acc => {
+      const accStart = new Date(acc.start_time);
+      const accEnd = acc.end_time ? new Date(acc.end_time) : accStart;
+
+      // Check if accommodation overlaps with visible range
+      return accStart <= endRange && accEnd >= startRange;
+    });
+  }, [accommodations, displayDates]);
 
   // Format date header
   const formatDateHeader = (date: Date) => {
@@ -291,6 +322,58 @@ export default function OutlookSchedule({
           </div>
         )}
       </div>
+
+      {/* Accommodation bar - like Outlook all-day events */}
+      {visibleAccommodations.length > 0 && (
+        <div className="border-b border-white/10 bg-purple-500/5">
+          <div className="flex">
+            {/* Label column */}
+            <div className="w-16 flex-shrink-0 border-r border-white/10 p-2 flex items-center justify-center">
+              <Hotel className="w-4 h-4 text-purple-400" />
+            </div>
+
+            {/* Accommodation spans across days */}
+            <div className="flex-1 relative min-h-[60px] py-2 px-1">
+              {visibleAccommodations.map(acc => {
+                const accStart = new Date(acc.start_time);
+                const accEnd = acc.end_time ? new Date(acc.end_time) : accStart;
+                const rangeStart = new Date(displayDates[0]);
+                rangeStart.setHours(0, 0, 0, 0);
+                const rangeEnd = new Date(displayDates[displayDates.length - 1]);
+                rangeEnd.setHours(23, 59, 59, 999);
+
+                // Calculate position as percentage of visible range
+                const totalDays = daysToShow;
+                const startDay = Math.max(0, Math.floor((accStart.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)));
+                const endDay = Math.min(totalDays, Math.ceil((accEnd.getTime() - rangeStart.getTime()) / (1000 * 60 * 60 * 24)));
+                const leftPercent = (startDay / totalDays) * 100;
+                const widthPercent = ((endDay - startDay) / totalDays) * 100;
+
+                return (
+                  <div
+                    key={acc.id}
+                    className="absolute top-2 bottom-2 bg-purple-500/30 border border-purple-400 rounded-lg px-3 py-1 cursor-pointer hover:bg-purple-500/40 transition-colors flex items-center gap-2 overflow-hidden"
+                    style={{
+                      left: `${leftPercent}%`,
+                      width: `${Math.max(widthPercent, 100 / totalDays)}%`,
+                    }}
+                    onClick={() => setSelectedActivity(acc)}
+                  >
+                    <Hotel className="w-4 h-4 text-purple-300 flex-shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-purple-200 truncate">{acc.title}</p>
+                      <p className="text-xs text-white/50 truncate">
+                        {accStart.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
+                        {acc.end_time && ` - ${accEnd.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}`}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Calendar grid - scrollable container */}
       <div ref={scrollContainerRef} className="flex overflow-x-auto overflow-y-auto max-h-[600px]">
