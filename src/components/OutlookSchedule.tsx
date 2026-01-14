@@ -24,6 +24,8 @@ import {
   Camera,
   Users,
   Coffee,
+  FileText,
+  Loader2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { ScheduleItem, Trip } from '../types';
@@ -86,6 +88,7 @@ export default function OutlookSchedule({
   const [addModalHour, setAddModalHour] = useState<number | undefined>();
   const [selectedActivity, setSelectedActivity] = useState<ScheduleItem | null>(null);
   const [showSuggestionsModal, setShowSuggestionsModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
 
   // Ref for scroll container
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -259,13 +262,20 @@ export default function OutlookSchedule({
         </div>
 
         {isAdmin && (
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-2 px-3 py-1.5 bg-blue-500/20 text-blue-400 rounded-lg hover:bg-blue-500/30 transition-colors text-sm"
+            >
+              <FileText className="w-4 h-4" />
+              <span className="hidden sm:inline">AI Import</span>
+            </button>
             <button
               onClick={() => setShowSuggestionsModal(true)}
               className="flex items-center gap-2 px-3 py-1.5 bg-fuchsia-500/20 text-fuchsia-400 rounded-lg hover:bg-fuchsia-500/30 transition-colors text-sm"
             >
               <Sparkles className="w-4 h-4" />
-              Suggestions
+              <span className="hidden sm:inline">Suggestions</span>
             </button>
             <button
               onClick={() => {
@@ -276,7 +286,7 @@ export default function OutlookSchedule({
               className="flex items-center gap-2 px-3 py-1.5 bg-green-500/20 text-green-400 rounded-lg hover:bg-green-500/30 transition-colors text-sm"
             >
               <Plus className="w-4 h-4" />
-              Add Activity
+              <span className="hidden sm:inline">Add</span>
             </button>
           </div>
         )}
@@ -467,6 +477,20 @@ export default function OutlookSchedule({
           memberCount={memberCount}
           onClose={() => {
             setShowSuggestionsModal(false);
+            refreshData();
+          }}
+          onRefreshCalendar={refreshData}
+        />
+      )}
+
+      {/* AI Import Modal */}
+      {showImportModal && (
+        <AIImportModal
+          tripId={tripId}
+          tripStartDate={tripStartDate}
+          tripEndDate={tripEndDate}
+          onClose={() => {
+            setShowImportModal(false);
             refreshData();
           }}
           onRefreshCalendar={refreshData}
@@ -1479,6 +1503,354 @@ function AISuggestionsModal({
                 className="btn-secondary flex-1"
               >
                 Get New Suggestions
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// AI Import Modal - Parse booking confirmations
+interface ParsedItem {
+  title: string;
+  type: string;
+  description?: string;
+  location?: string;
+  location_url?: string;
+  start_time: string;
+  end_time?: string;
+  estimated_cost?: number;
+  reservation_code?: string;
+  contact_info?: string;
+}
+
+function AIImportModal({
+  tripId,
+  tripStartDate,
+  tripEndDate,
+  onClose,
+  onRefreshCalendar,
+}: {
+  tripId: string;
+  tripStartDate: string;
+  tripEndDate?: string;
+  onClose: () => void;
+  onRefreshCalendar?: () => void;
+}) {
+  const [inputText, setInputText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
+  const [error, setError] = useState('');
+  const [adding, setAdding] = useState<number | null>(null);
+  const [addedItems, setAddedItems] = useState<Set<number>>(new Set());
+
+  async function handleParse() {
+    if (!inputText.trim()) {
+      setError('Plak een bevestigingsmail of boekingstekst');
+      return;
+    }
+
+    setLoading(true);
+    setError('');
+    setParsedItems([]);
+
+    try {
+      const response = await fetch('/api/parse-booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: inputText,
+          tripStartDate,
+          tripEndDate,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        setError(data.error);
+      } else if (data.items && data.items.length > 0) {
+        setParsedItems(data.items);
+      } else if (data.raw) {
+        setError('Kon de tekst niet verwerken. Probeer het opnieuw.');
+      } else {
+        setError('Geen boekingen gevonden in de tekst.');
+      }
+    } catch {
+      setError('Er ging iets mis. Probeer het opnieuw.');
+    }
+
+    setLoading(false);
+  }
+
+  async function handleAddItem(item: ParsedItem, index: number) {
+    setAdding(index);
+
+    // Map type to valid schedule item type
+    const typeMap: Record<string, string> = {
+      accommodation: 'accommodation',
+      travel: 'travel',
+      activity: 'activity',
+      meal: 'meal',
+      meeting: 'meeting',
+    };
+    const scheduleType = typeMap[item.type] || 'activity';
+
+    const insertData: Record<string, unknown> = {
+      trip_id: tripId,
+      title: item.title,
+      description: item.description || null,
+      location: item.location || null,
+      type: scheduleType,
+      start_time: item.start_time,
+      end_time: item.end_time || null,
+    };
+
+    // Add optional fields
+    if (item.location_url) insertData.location_url = item.location_url;
+    if (item.estimated_cost) insertData.estimated_cost = item.estimated_cost;
+    if (item.reservation_code) insertData.reservation_code = item.reservation_code;
+    if (item.contact_info) insertData.contact_info = item.contact_info;
+
+    const { error } = await supabase.from('schedule_items').insert(insertData);
+
+    if (error) {
+      // Try with minimal data if column error
+      if (error.message.includes('column')) {
+        const minimalData = {
+          trip_id: tripId,
+          title: item.title,
+          description: item.description || null,
+          location: item.location || null,
+          type: scheduleType,
+          start_time: item.start_time,
+          end_time: item.end_time || null,
+        };
+        await supabase.from('schedule_items').insert(minimalData);
+      }
+    }
+
+    setAdding(null);
+    setAddedItems(prev => new Set(prev).add(index));
+
+    if (onRefreshCalendar) {
+      onRefreshCalendar();
+    }
+  }
+
+  async function handleAddAll() {
+    for (let i = 0; i < parsedItems.length; i++) {
+      if (!addedItems.has(i)) {
+        await handleAddItem(parsedItems[i], i);
+      }
+    }
+  }
+
+  const pendingCount = parsedItems.length - addedItems.size;
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
+      <div className="bg-slate-800 border border-white/10 rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center">
+            <FileText className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold">AI Import</h2>
+            <p className="text-sm text-white/50">Plak bevestigingsmails om agenda-items aan te maken</p>
+          </div>
+        </div>
+
+        {parsedItems.length === 0 ? (
+          <div className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-white/70 mb-2">
+                Plak hier je bevestigingsmail of boekingstekst
+              </label>
+              <textarea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                className="input-field resize-none font-mono text-sm"
+                rows={12}
+                placeholder={`Bijvoorbeeld:
+
+Je reservering is bevestigd.
+
+Hotel Berchielli
+Check-in: donderdag 15 januari 2026 (14:00)
+Check-out: vrijdag 16 januari 2026 (11:00)
+Adres: Lungarno Acciaiuoli, 14, Florence
+Totaalprijs: €272,98
+Referentie: ABC123456`}
+              />
+            </div>
+
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 text-sm">
+              <p className="font-medium text-blue-400 mb-2">💡 Tips</p>
+              <ul className="text-white/60 space-y-1">
+                <li>• Kopieer de volledige bevestigingsmail</li>
+                <li>• Werkt met hotels, vluchten, treinen, activiteiten</li>
+                <li>• Meerdere boekingen in één tekst? Geen probleem!</li>
+                <li>• De AI herkent automatisch data, tijden en prijzen</li>
+              </ul>
+            </div>
+
+            {error && (
+              <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={onClose} className="btn-secondary flex-1">
+                Annuleren
+              </button>
+              <button
+                onClick={handleParse}
+                disabled={loading || !inputText.trim()}
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Analyseren...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Analyseer met AI
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-white/60">
+                {parsedItems.length} item{parsedItems.length !== 1 ? 's' : ''} gevonden
+              </p>
+              {pendingCount > 0 && (
+                <button
+                  onClick={handleAddAll}
+                  className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1"
+                >
+                  <Plus className="w-4 h-4" />
+                  Alles toevoegen ({pendingCount})
+                </button>
+              )}
+            </div>
+
+            {parsedItems.map((item, index) => {
+              const isAdded = addedItems.has(index);
+              const colors = typeColors[item.type] || typeColors.activity;
+
+              return (
+                <div
+                  key={index}
+                  className={`p-4 rounded-xl border transition-all ${
+                    isAdded
+                      ? 'bg-green-500/10 border-green-500/30'
+                      : 'bg-white/5 border-white/10 hover:border-blue-500/50'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <span className={`p-1.5 rounded-lg ${colors.bg} ${colors.border} border`}>
+                          {typeIcons[item.type] || <Calendar className="w-4 h-4" />}
+                        </span>
+                        <h4 className="font-semibold">{item.title}</h4>
+                        {isAdded && (
+                          <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <Check className="w-3 h-3" />
+                            Toegevoegd
+                          </span>
+                        )}
+                      </div>
+
+                      {item.description && (
+                        <p className="text-sm text-white/60 mb-2">{item.description}</p>
+                      )}
+
+                      <div className="flex flex-wrap gap-3 text-xs text-white/50">
+                        {item.start_time && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />
+                            {new Date(item.start_time).toLocaleString('nl-NL', {
+                              weekday: 'short',
+                              day: 'numeric',
+                              month: 'short',
+                              hour: '2-digit',
+                              minute: '2-digit',
+                            })}
+                            {item.end_time && (
+                              <> - {new Date(item.end_time).toLocaleString('nl-NL', {
+                                day: 'numeric',
+                                month: 'short',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}</>
+                            )}
+                          </span>
+                        )}
+                        {item.location && (
+                          <span className="flex items-center gap-1">
+                            <MapPin className="w-3 h-3" />
+                            {item.location.length > 40 ? item.location.substring(0, 40) + '...' : item.location}
+                          </span>
+                        )}
+                        {item.estimated_cost && (
+                          <span className="flex items-center gap-1">
+                            <Euro className="w-3 h-3" />
+                            €{item.estimated_cost.toFixed(2)}
+                          </span>
+                        )}
+                        {item.reservation_code && (
+                          <span className="flex items-center gap-1 font-mono">
+                            #{item.reservation_code}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <button
+                      onClick={() => handleAddItem(item, index)}
+                      disabled={adding !== null || isAdded}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                        isAdded
+                          ? 'bg-green-500/20 text-green-400 cursor-default'
+                          : 'bg-blue-500/20 text-blue-400 hover:bg-blue-500/30'
+                      }`}
+                    >
+                      {adding === index ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : isAdded ? (
+                        <Check className="w-4 h-4" />
+                      ) : (
+                        <Plus className="w-4 h-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+              );
+            })}
+
+            <div className="flex gap-3 pt-4">
+              <button
+                onClick={() => {
+                  setParsedItems([]);
+                  setAddedItems(new Set());
+                  setInputText('');
+                }}
+                className="btn-secondary flex-1"
+              >
+                Nieuwe import
+              </button>
+              <button onClick={onClose} className="btn-primary flex-1">
+                Klaar
               </button>
             </div>
           </div>
