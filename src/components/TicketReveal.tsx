@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { QrCode, Plane, Train, Bus, MapPin, AlertCircle } from 'lucide-react';
+import { QrCode, Plane, Train, Bus, MapPin, AlertCircle, Ticket as TicketIcon } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Ticket, TicketRevealStatus, Trip } from '../types';
 
@@ -11,10 +11,11 @@ interface TicketRevealProps {
   userName?: string;
 }
 
-const typeIcons = {
+const typeIcons: Record<Ticket['type'], typeof Plane> = {
   flight: Plane,
   train: Train,
   bus: Bus,
+  event: TicketIcon,
   other: MapPin,
 };
 
@@ -108,19 +109,23 @@ export default function TicketReveal({
                 <TypeIcon className="w-8 h-8 md:w-10 md:h-10" />
               </div>
               <div className="text-right">
-                <p className="text-fuchsia-300 text-sm font-medium">
-                  {new Date(ticket.departure_time).toLocaleTimeString('en-US', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                  })}
-                </p>
-                <p className="text-xl md:text-2xl font-bold">
-                  {new Date(ticket.departure_time).toLocaleDateString('en-US', {
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric',
-                  })}
-                </p>
+                {ticket.departure_time && (
+                  <>
+                    <p className="text-fuchsia-300 text-sm font-medium">
+                      {new Date(ticket.departure_time).toLocaleTimeString('en-US', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </p>
+                    <p className="text-xl md:text-2xl font-bold">
+                      {new Date(ticket.departure_time).toLocaleDateString('en-US', {
+                        day: 'numeric',
+                        month: 'short',
+                        year: 'numeric',
+                      })}
+                    </p>
+                  </>
+                )}
               </div>
             </div>
 
@@ -200,7 +205,83 @@ export default function TicketReveal({
     );
   }
 
-  // Full reveal - Festival style ticket like Freshtival
+  // Full reveal - Show the REAL original ticket prominently
+  // If full_ticket_url is available, show it as the main ticket
+  if (ticket.full_ticket_url) {
+    return (
+      <div className="max-w-md mx-auto">
+        <div className={`relative overflow-hidden rounded-3xl ${showAnimation ? 'ticket-reveal' : ''}`}>
+          {/* Header banner */}
+          <div className="bg-gradient-to-r from-green-500 to-emerald-600 p-4 text-center">
+            <p className="text-white font-bold text-lg flex items-center justify-center gap-2">
+              <TypeIcon className="w-5 h-5" />
+              Your Ticket is Ready!
+            </p>
+            <p className="text-white/80 text-sm">Show this at check-in</p>
+          </div>
+
+          {/* Full original ticket image */}
+          <img
+            src={ticket.full_ticket_url}
+            alt="Your Ticket"
+            className="w-full"
+          />
+        </div>
+
+        {/* Quick info below ticket */}
+        <div className="mt-4 p-4 bg-white/5 rounded-xl space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-white/50">Passenger</span>
+            <span className="font-medium">{userName || 'Traveler'}</span>
+          </div>
+          {ticket.departure_time && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/50">Departure</span>
+              <span className="font-medium">
+                {new Date(ticket.departure_time).toLocaleString('en-US', {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </span>
+            </div>
+          )}
+          {ticket.booking_reference && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/50">Reference</span>
+              <span className="font-mono font-medium">{ticket.booking_reference}</span>
+            </div>
+          )}
+        </div>
+
+        {/* QR Code as secondary (tappable) */}
+        {ticket.qr_code_url && (
+          <div
+            className="mt-4 flex flex-col items-center cursor-pointer p-4 bg-white/5 rounded-xl"
+            onClick={() => setShowQRModal(true)}
+          >
+            <p className="text-sm text-white/50 mb-2">Tap for enlarged QR code</p>
+            <div className="bg-white rounded-xl p-2">
+              <img src={ticket.qr_code_url} alt="QR Code" className="w-24 h-24" />
+            </div>
+          </div>
+        )}
+
+        {/* QR Modal */}
+        {showQRModal && (
+          <QRModal
+            qrData={qrData}
+            qrUrl={ticket.qr_code_url}
+            onClose={() => setShowQRModal(false)}
+          />
+        )}
+      </div>
+    );
+  }
+
+  // Fallback: Festival style ticket (when no full_ticket_url)
   return (
     <div className="max-w-md mx-auto">
       <div className={`relative overflow-hidden rounded-3xl ${showAnimation ? 'ticket-reveal' : ''}`}>
@@ -215,26 +296,30 @@ export default function TicketReveal({
               <TypeIcon className="w-8 h-8 md:w-10 md:h-10" />
             </div>
             <div className="text-right">
-              <p className="text-fuchsia-300 text-sm font-medium">
-                {new Date(ticket.departure_time).toLocaleTimeString('en-US', {
-                  hour: '2-digit',
-                  minute: '2-digit',
-                })}
-              </p>
-              <p className="text-xl md:text-2xl font-bold">
-                {new Date(ticket.departure_time).toLocaleDateString('en-US', {
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                })}
-              </p>
+              {ticket.departure_time && (
+                <>
+                  <p className="text-fuchsia-300 text-sm font-medium">
+                    {new Date(ticket.departure_time).toLocaleTimeString('en-US', {
+                      hour: '2-digit',
+                      minute: '2-digit',
+                    })}
+                  </p>
+                  <p className="text-xl md:text-2xl font-bold">
+                    {new Date(ticket.departure_time).toLocaleDateString('en-US', {
+                      day: 'numeric',
+                      month: 'short',
+                      year: 'numeric',
+                    })}
+                  </p>
+                </>
+              )}
             </div>
           </div>
 
           {/* Event/Trip name */}
           <div className="mb-6">
             <p className="text-fuchsia-300 text-sm font-medium uppercase tracking-wider mb-1">
-              {ticket.type === 'flight' ? 'Flight' : ticket.type === 'train' ? 'Train Journey' : 'Trip'}
+              {ticket.type === 'flight' ? 'Flight' : ticket.type === 'train' ? 'Train Journey' : ticket.type === 'event' ? 'Event' : 'Trip'}
             </p>
             <h2 className="text-2xl md:text-3xl font-bold">
               {trip?.name || ticket.carrier || 'Your Journey'}
@@ -247,7 +332,10 @@ export default function TicketReveal({
               Ticket
             </p>
             <p className="text-lg">
-              {ticket.carrier ? `${ticket.carrier} • ` : ''}{ticket.departure_location} → {ticket.arrival_location}
+              {ticket.carrier && <span>{ticket.carrier}</span>}
+              {ticket.flight_number && <span className="font-mono ml-1">{ticket.flight_number}</span>}
+              {(ticket.carrier || ticket.flight_number) && <span className="mx-2">•</span>}
+              {ticket.departure_location} → {ticket.arrival_location}
             </p>
           </div>
 
@@ -314,18 +402,6 @@ export default function TicketReveal({
           </div>
         </div>
       </div>
-
-      {/* Full ticket image if available */}
-      {ticket.full_ticket_url && (
-        <div className="mt-6">
-          <p className="text-sm text-white/50 mb-2 text-center">Original Ticket</p>
-          <img
-            src={ticket.full_ticket_url}
-            alt="Full Ticket"
-            className="w-full rounded-xl"
-          />
-        </div>
-      )}
 
       {/* QR Modal */}
       {showQRModal && (

@@ -330,6 +330,7 @@ function TicketUploadModal({
   const [selectedMemberId, setSelectedMemberId] = useState(member?.user_id || '');
   const [ticketType, setTicketType] = useState<Ticket['type']>('flight');
   const [carrier, setCarrier] = useState('');
+  const [flightNumber, setFlightNumber] = useState('');
   const [departureLocation, setDepartureLocation] = useState('');
   const [arrivalLocation, setArrivalLocation] = useState('');
   const [departureTime, setDepartureTime] = useState('');
@@ -341,22 +342,60 @@ function TicketUploadModal({
   const [loading, setLoading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [showManualEntry, setShowManualEntry] = useState(false);
+  const [aiError, setAiError] = useState('');
 
-  // AI Ticket Analysis - simulated for now (would need OCR API in production)
+  // AI Ticket Analysis using GPT-4 Vision
   async function analyzeTicket(file: File) {
     setAnalyzing(true);
+    setAiError('');
 
-    // Simulate AI analysis delay
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    try {
+      // Import and call the AI extraction function
+      const { extractTicketData, matchPassengerToMember } = await import('../lib/openai');
+      const extracted = await extractTicketData(file);
 
-    // In production, this would call an OCR API like Google Vision, AWS Textract, or OpenAI GPT-4V
-    // For now, we'll show the manual entry form after "analysis"
-    setShowManualEntry(true);
-    setAnalyzing(false);
+      console.log('[TicketUpload] AI extracted data:', extracted);
 
-    // Mock extracted data for demo purposes
-    // In production, parse the actual ticket image
-    console.log('[TicketUpload] Would analyze ticket:', file.name);
+      // Auto-fill form fields with extracted data
+      if (extracted.ticket_type) setTicketType(extracted.ticket_type);
+      if (extracted.carrier) setCarrier(extracted.carrier);
+      if (extracted.flight_number) setFlightNumber(extracted.flight_number);
+      if (extracted.departure_location) setDepartureLocation(extracted.departure_location);
+      if (extracted.arrival_location) setArrivalLocation(extracted.arrival_location);
+      if (extracted.departure_time) {
+        // Convert ISO to datetime-local format
+        const dt = new Date(extracted.departure_time);
+        if (!isNaN(dt.getTime())) {
+          setDepartureTime(dt.toISOString().slice(0, 16));
+        }
+      }
+      if (extracted.arrival_time) {
+        const at = new Date(extracted.arrival_time);
+        if (!isNaN(at.getTime())) {
+          setArrivalTime(at.toISOString().slice(0, 16));
+        }
+      }
+      if (extracted.seat_number) setSeatNumber(extracted.seat_number);
+      if (extracted.gate) setGate(extracted.gate);
+      if (extracted.booking_reference) setBookingReference(extracted.booking_reference);
+
+      // Try to auto-match passenger to member
+      if (extracted.passenger_name && !selectedMemberId) {
+        const match = matchPassengerToMember(extracted.passenger_name, members);
+        if (match && match.confidence >= 0.7) {
+          setSelectedMemberId(match.user_id);
+          console.log('[TicketUpload] Auto-matched passenger to member:', match);
+        }
+      }
+
+      setShowManualEntry(true);
+    } catch (error) {
+      console.error('[TicketUpload] AI analysis error:', error);
+      setAiError(error instanceof Error ? error.message : 'Failed to analyze ticket');
+      setShowManualEntry(true); // Still show manual entry on error
+    } finally {
+      setAnalyzing(false);
+    }
   }
 
   async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -402,53 +441,29 @@ function TicketUploadModal({
         trip_id: tripId,
         member_id: selectedMemberId,
         type: ticketType,
+        flight_number: flightNumber,
       });
 
-      // First try to insert, then update if it exists
-      const { data: existingTicket } = await supabase
-        .from('tickets')
-        .select('id, full_ticket_url')
-        .eq('trip_id', tripId)
-        .eq('member_id', selectedMemberId)
-        .single();
+      // Always insert new ticket (multiple tickets per person are allowed)
+      console.log('[TicketUpload] Inserting new ticket...');
 
-      let error;
-
-      if (existingTicket) {
-        // Update existing ticket
-        console.log('[TicketUpload] Updating existing ticket...');
-        const result = await supabase.from('tickets').update({
-          type: ticketType,
-          carrier: carrier || null,
-          departure_location: departureLocation || null,
-          arrival_location: arrivalLocation || null,
-          departure_time: departureTime ? new Date(departureTime).toISOString() : null,
-          arrival_time: arrivalTime ? new Date(arrivalTime).toISOString() : null,
-          seat_number: seatNumber || null,
-          gate: gate || null,
-          booking_reference: bookingReference || null,
-          full_ticket_url: fullTicketUrl || existingTicket.full_ticket_url || null,
-        }).eq('id', existingTicket.id);
-        error = result.error;
-      } else {
-        // Insert new ticket
-        console.log('[TicketUpload] Inserting new ticket...');
-        const result = await supabase.from('tickets').insert({
-          trip_id: tripId,
-          member_id: selectedMemberId,
-          type: ticketType,
-          carrier: carrier || null,
-          departure_location: departureLocation || null,
-          arrival_location: arrivalLocation || null,
-          departure_time: departureTime ? new Date(departureTime).toISOString() : null,
-          arrival_time: arrivalTime ? new Date(arrivalTime).toISOString() : null,
-          seat_number: seatNumber || null,
-          gate: gate || null,
-          booking_reference: bookingReference || null,
-          full_ticket_url: fullTicketUrl,
-        });
-        error = result.error;
-      }
+      // For event tickets, set sensible defaults for transport fields
+      const isEvent = ticketType === 'event';
+      const { error } = await supabase.from('tickets').insert({
+        trip_id: tripId,
+        member_id: selectedMemberId,
+        type: ticketType,
+        carrier: carrier || null,
+        flight_number: isEvent ? null : (flightNumber || null),
+        departure_location: isEvent ? (carrier || 'Event') : (departureLocation || 'TBD'),
+        arrival_location: arrivalLocation || (isEvent ? 'Event Location' : 'TBD'),
+        departure_time: departureTime ? new Date(departureTime).toISOString() : null,
+        arrival_time: arrivalTime ? new Date(arrivalTime).toISOString() : null,
+        seat_number: seatNumber || null,
+        gate: isEvent ? null : (gate || null),
+        booking_reference: bookingReference || null,
+        full_ticket_url: fullTicketUrl,
+      });
 
       if (error) {
         console.error('[TicketUpload] Database error:', error);
@@ -537,6 +552,13 @@ function TicketUploadModal({
             )}
           </div>
 
+          {/* AI Error Display */}
+          {aiError && (
+            <div className="p-3 bg-yellow-500/20 border border-yellow-500/50 rounded-lg text-yellow-200 text-sm">
+              AI analysis failed: {aiError}. Please enter details manually.
+            </div>
+          )}
+
           {/* Manual Entry Toggle */}
           {!showManualEntry && !analyzing && (
             <button
@@ -564,54 +586,91 @@ function TicketUploadModal({
                     <option value="flight">Flight</option>
                     <option value="train">Train</option>
                     <option value="bus">Bus</option>
+                    <option value="event">Event / Festival</option>
                     <option value="other">Other</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-white/70 mb-2">
-                    Carrier
+                    {ticketType === 'event' ? 'Venue / Organizer' : 'Carrier'}
                   </label>
                   <input
                     type="text"
                     value={carrier}
                     onChange={(e) => setCarrier(e.target.value)}
                     className="input-field"
-                    placeholder="KLM, Ryanair, etc."
+                    placeholder={ticketType === 'event' ? 'Festival name, venue' : 'KLM, Ryanair, etc.'}
                   />
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              {/* Transport-specific fields */}
+              {ticketType !== 'event' && (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-white/70 mb-2">
+                        Flight/Train Number
+                      </label>
+                      <input
+                        type="text"
+                        value={flightNumber}
+                        onChange={(e) => setFlightNumber(e.target.value)}
+                        className="input-field"
+                        placeholder="KL1234, BA567, IC621"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-white/70 mb-2">
+                        Departure
+                      </label>
+                      <input
+                        type="text"
+                        value={departureLocation}
+                        onChange={(e) => setDepartureLocation(e.target.value)}
+                        className="input-field"
+                        placeholder="Amsterdam Schiphol"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-white/70 mb-2">
+                        Arrival
+                      </label>
+                      <input
+                        type="text"
+                        value={arrivalLocation}
+                        onChange={(e) => setArrivalLocation(e.target.value)}
+                        className="input-field"
+                        placeholder="Barcelona"
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* Event-specific fields */}
+              {ticketType === 'event' && (
                 <div>
                   <label className="block text-sm font-medium text-white/70 mb-2">
-                    Departure
-                  </label>
-                  <input
-                    type="text"
-                    value={departureLocation}
-                    onChange={(e) => setDepartureLocation(e.target.value)}
-                    className="input-field"
-                    placeholder="Amsterdam Schiphol"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-white/70 mb-2">
-                    Arrival
+                    Location / Venue
                   </label>
                   <input
                     type="text"
                     value={arrivalLocation}
                     onChange={(e) => setArrivalLocation(e.target.value)}
                     className="input-field"
-                    placeholder="Barcelona"
+                    placeholder="Event location"
                   />
                 </div>
-              </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-sm font-medium text-white/70 mb-2">
-                    Departure Time
+                    {ticketType === 'event' ? 'Event Start' : 'Departure Time'}
                   </label>
                   <input
                     type="datetime-local"
@@ -622,7 +681,7 @@ function TicketUploadModal({
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-white/70 mb-2">
-                    Arrival Time
+                    {ticketType === 'event' ? 'Event End' : 'Arrival Time'}
                   </label>
                   <input
                     type="datetime-local"

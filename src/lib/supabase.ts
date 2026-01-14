@@ -3,11 +3,32 @@ import { createClient } from '@supabase/supabase-js';
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
 
+// Debug logging for connection issues
+console.log('[Supabase] Initializing with URL:', supabaseUrl ? `${supabaseUrl.slice(0, 30)}...` : 'MISSING');
+console.log('[Supabase] Anon key present:', !!supabaseAnonKey, supabaseAnonKey ? `(${supabaseAnonKey.length} chars)` : '');
+
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Supabase credentials not configured. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY');
+  console.error('[Supabase] CRITICAL: Credentials not configured!');
+  console.error('[Supabase] VITE_SUPABASE_URL:', supabaseUrl || 'NOT SET');
+  console.error('[Supabase] VITE_SUPABASE_ANON_KEY:', supabaseAnonKey ? 'SET' : 'NOT SET');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+  },
+  // Add request timeout
+  global: {
+    fetch: (url, options) => {
+      console.log('[Supabase] Fetch request to:', typeof url === 'string' ? url.split('?')[0] : 'unknown');
+      return fetch(url, {
+        ...options,
+        signal: AbortSignal.timeout(30000), // 30 second timeout
+      });
+    },
+  },
+});
 
 // Helper function to generate a unique lobby code
 export function generateLobbyCode(): string {
@@ -25,16 +46,27 @@ export async function uploadFile(
   path: string,
   file: File
 ): Promise<string | null> {
-  const { error } = await supabase.storage
+  console.log(`[uploadFile] Starting upload to ${bucket}/${path}, size: ${file.size} bytes`);
+
+  const { error, data: uploadData } = await supabase.storage
     .from(bucket)
     .upload(path, file, { upsert: true });
 
   if (error) {
-    console.error('Upload error:', error);
+    console.error('[uploadFile] Upload error:', {
+      message: error.message,
+      name: error.name,
+      bucket,
+      path,
+      fileSize: file.size,
+      fileType: file.type
+    });
     return null;
   }
 
+  console.log('[uploadFile] Upload successful:', uploadData);
   const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  console.log('[uploadFile] Public URL:', data.publicUrl);
   return data.publicUrl;
 }
 

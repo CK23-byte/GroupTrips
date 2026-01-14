@@ -39,17 +39,21 @@ export interface Ticket {
   id: string;
   trip_id: string;
   member_id: string;
-  type: 'flight' | 'train' | 'bus' | 'other';
-  carrier?: string;
-  departure_location: string;
-  arrival_location: string;
-  departure_time: string;
-  arrival_time?: string;
+  type: 'flight' | 'train' | 'bus' | 'event' | 'other';
+  label?: string; // e.g., "Outbound", "Return", "Day Trip"
+  carrier?: string; // For transport: airline/company, for events: organizer/venue
+  flight_number?: string; // e.g., "KL1234", "BA567"
+  departure_location?: string; // Optional for event tickets
+  arrival_location?: string; // Optional for event tickets
+  departure_time?: string; // For events: event start time
+  arrival_time?: string; // For events: event end time
   seat_number?: string;
   gate?: string;
   booking_reference?: string;
   qr_code_url?: string;
   full_ticket_url?: string;
+  event_name?: string; // For event tickets
+  venue?: string; // For event tickets
   created_at: string;
 }
 

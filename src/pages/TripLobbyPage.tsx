@@ -41,6 +41,7 @@ import type {
 import { getTicketRevealStatus } from '../types';
 import TicketReveal from '../components/TicketReveal';
 import Timeline from '../components/Timeline';
+import OutlookSchedule from '../components/OutlookSchedule';
 import MembersList from '../components/MembersList';
 import MessagesPanel from '../components/MessagesPanel';
 import GoogleMapComponent from '../components/GoogleMap';
@@ -69,6 +70,7 @@ export default function TripLobbyPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [copied, setCopied] = useState(false);
+  const [scheduleView, setScheduleView] = useState<'calendar' | 'timeline'>('calendar');
 
   useEffect(() => {
     if (tripId && user) {
@@ -328,13 +330,55 @@ export default function TripLobbyPage() {
           />
         )}
         {activeTab === 'schedule' && (
-          <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} trip={trip} memberCount={members.length} />
+          <div className="space-y-4">
+            {/* View toggle */}
+            <div className="flex justify-end">
+              <div className="inline-flex bg-white/5 rounded-lg p-1">
+                <button
+                  onClick={() => setScheduleView('calendar')}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    scheduleView === 'calendar'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-white/60 hover:text-white'
+                  }`}
+                >
+                  Calendar
+                </button>
+                <button
+                  onClick={() => setScheduleView('timeline')}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                    scheduleView === 'timeline'
+                      ? 'bg-blue-500 text-white'
+                      : 'text-white/60 hover:text-white'
+                  }`}
+                >
+                  Timeline
+                </button>
+              </div>
+            </div>
+
+            {/* Schedule views */}
+            {scheduleView === 'calendar' ? (
+              <OutlookSchedule
+                items={schedule}
+                tripStartDate={trip?.departure_time || new Date().toISOString()}
+                tripEndDate={trip?.return_time}
+                isAdmin={isAdmin}
+                tripId={tripId!}
+                trip={trip}
+                memberCount={members.length}
+                onRefresh={loadTripData}
+              />
+            ) : (
+              <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} trip={trip} memberCount={members.length} />
+            )}
+          </div>
         )}
         {activeTab === 'members' && (
           <MembersList members={members} isAdmin={isAdmin} tripId={tripId!} lobbyCode={trip?.lobby_code} />
         )}
         {activeTab === 'location' && (
-          <LocationTab tripId={tripId!} members={members} />
+          <LocationTab tripId={tripId!} members={members} tripEndTime={trip?.return_time} />
         )}
         {activeTab === 'messages' && (
           <MessagesPanel
@@ -369,14 +413,14 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
+      className={`flex items-center gap-2 px-3 sm:px-4 py-3 text-sm font-medium transition-colors whitespace-nowrap ${
         active
           ? 'text-blue-400 border-b-2 border-blue-400'
           : 'text-white/50 hover:text-white/80'
       }`}
     >
       {icon}
-      {label}
+      <span className="hidden sm:inline">{label}</span>
     </button>
   );
 }
@@ -738,11 +782,39 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
     return conditions[code] || { text: 'Unknown', icon: '❓' };
   }
 
-  // Check if destination should be hidden (reveal 1 hour before departure, same as tickets)
+  // Check if destination should be hidden
+  // - More than 3 hours: Show approximate weather for packing, hide destination
+  // - 1-3 hours: Show approximate weather, hide destination
+  // - Less than 1 hour: Full reveal with destination name
   const departureTime = new Date(departureDate).getTime();
   const now = Date.now();
   const hoursUntilDeparture = (departureTime - now) / (1000 * 60 * 60);
   const isDestinationRevealed = isAdmin || hoursUntilDeparture <= 1;
+  const showApproximateWeather = hoursUntilDeparture <= 72; // Show approximate weather up to 3 days before
+
+  // Helper to approximate temperatures (+/- 3 degrees range)
+  const approximateTemp = (temp: number) => {
+    const roundedBase = Math.round(temp / 5) * 5; // Round to nearest 5
+    return `${roundedBase - 3}° - ${roundedBase + 3}°C`;
+  };
+
+  // Helper to get general weather category (less specific)
+  const getGeneralCondition = (condition: string) => {
+    const lowerCondition = condition.toLowerCase();
+    if (lowerCondition.includes('rain') || lowerCondition.includes('drizzle') || lowerCondition.includes('shower')) {
+      return { text: 'Rainy', icon: '🌧️', tip: 'Bring a rain jacket' };
+    }
+    if (lowerCondition.includes('snow')) {
+      return { text: 'Cold & Snowy', icon: '❄️', tip: 'Pack warm clothes' };
+    }
+    if (lowerCondition.includes('cloud') || lowerCondition.includes('fog')) {
+      return { text: 'Cloudy', icon: '☁️', tip: 'Layers recommended' };
+    }
+    if (lowerCondition.includes('storm') || lowerCondition.includes('thunder')) {
+      return { text: 'Stormy', icon: '⛈️', tip: 'Bring rain gear' };
+    }
+    return { text: 'Pleasant', icon: '🌤️', tip: 'Light clothing should be fine' };
+  };
 
   if (!destination) {
     return (
@@ -760,7 +832,68 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
     );
   }
 
-  // Show mystery message for non-admins when destination is still hidden
+  // Show approximate weather for packing (destination hidden)
+  if (!isDestinationRevealed && weather && showApproximateWeather) {
+    const generalCondition = getGeneralCondition(weather.condition);
+    const avgHigh = weather.forecast.length > 0
+      ? Math.round(weather.forecast.reduce((sum, d) => sum + d.high, 0) / weather.forecast.length)
+      : weather.temperature;
+
+    return (
+      <div className="card p-6">
+        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <span className="text-2xl">🧳</span>
+          Packing Guide
+        </h2>
+        <div className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-white/50 text-sm">Expected temperature</p>
+              <p className="text-2xl font-bold">{approximateTemp(avgHigh)}</p>
+            </div>
+            <div className="text-4xl">{generalCondition.icon}</div>
+          </div>
+
+          <div className="bg-white/5 rounded-xl p-4">
+            <p className="text-white/70 flex items-center gap-2">
+              <span>{generalCondition.icon}</span>
+              <span>{generalCondition.text} conditions expected</span>
+            </p>
+            <p className="text-sm text-white/50 mt-1">{generalCondition.tip}</p>
+          </div>
+
+          {/* Approximate forecast */}
+          <div className="border-t border-white/10 pt-4">
+            <p className="text-xs text-white/40 mb-3">Trip forecast (approximate)</p>
+            <div className="grid grid-cols-4 gap-2">
+              {weather.forecast.slice(0, 4).map((day) => {
+                const dayCondition = getGeneralCondition(day.condition);
+                return (
+                  <div key={day.date} className="text-center">
+                    <p className="text-xs text-white/50">
+                      {new Date(day.date).toLocaleDateString('en-US', { weekday: 'short' })}
+                    </p>
+                    <p className="text-lg my-1">{dayCondition.icon}</p>
+                    <p className="text-xs text-white/60">
+                      ~{Math.round(day.high / 5) * 5}°
+                    </p>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <p className="text-xs text-white/40 text-center">
+            🎁 Exact location reveals {hoursUntilDeparture > 24
+              ? `in ${Math.floor(hoursUntilDeparture / 24)} days`
+              : `in ${Math.floor(hoursUntilDeparture)} hours`}
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show mystery message when weather hasn't loaded yet or too far out
   if (!isDestinationRevealed) {
     return (
       <div className="card p-6">
@@ -772,7 +905,7 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
           <p className="text-2xl mb-2">🤫</p>
           <p className="text-white/70 font-medium">Destination is a surprise!</p>
           <p className="text-white/50 text-sm mt-2">
-            Weather forecast reveals 1 hour before departure
+            Packing guide available 3 days before departure
           </p>
           {hoursUntilDeparture > 0 && (
             <p className="text-xs text-white/40 mt-2">
@@ -868,7 +1001,7 @@ function locationLog(message: string, data?: unknown) {
   console.log(`[${timestamp}][Location] ${message}`, data !== undefined ? data : '');
 }
 
-function LocationTab({ tripId, members }: { tripId: string; members: TripMember[] }) {
+function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members: TripMember[]; tripEndTime?: string }) {
   const { user } = useAuth();
   const [sharing, setSharing] = useState(false);
   const [locations, setLocations] = useState<MemberLocation[]>([]);
@@ -878,6 +1011,24 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [watchId, setWatchId] = useState<number | null>(null);
   const [gettingLocation, setGettingLocation] = useState(false);
+
+  // Check if trip has ended + 1 hour (location sharing auto-stops)
+  const now = new Date();
+  const tripEnd = tripEndTime ? new Date(tripEndTime) : null;
+  const autoStopTime = tripEnd ? new Date(tripEnd.getTime() + 60 * 60 * 1000) : null; // +1 hour
+  const isSharingDisabled = autoStopTime ? now > autoStopTime : false;
+
+  // Auto-stop sharing if trip has ended + 1 hour
+  useEffect(() => {
+    if (isSharingDisabled && sharing && watchId !== null) {
+      locationLog('Auto-stopping location sharing (trip ended + 1 hour)');
+      navigator.geolocation.clearWatch(watchId);
+      setWatchId(null);
+      setSharing(false);
+      setMyLocation(null);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSharingDisabled]);
 
   useEffect(() => {
     locationLog('LocationTab mounted', { tripId, userId: user?.id });
@@ -1098,14 +1249,21 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
           </div>
           <button
             onClick={sharing ? stopSharing : startSharing}
-            disabled={gettingLocation}
+            disabled={gettingLocation || isSharingDisabled}
             className={`flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-colors disabled:opacity-50 ${
-              sharing
+              isSharingDisabled
+                ? 'bg-white/10 text-white/40 cursor-not-allowed'
+                : sharing
                 ? 'bg-red-500/20 text-red-400 hover:bg-red-500/30'
                 : 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
             }`}
           >
-            {gettingLocation ? (
+            {isSharingDisabled ? (
+              <>
+                <Navigation className="w-4 h-4" />
+                Trip Ended
+              </>
+            ) : gettingLocation ? (
               <>
                 <div className="w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
                 Getting location...
@@ -1123,6 +1281,25 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
             )}
           </button>
         </div>
+
+        {/* Info about auto-stop */}
+        {tripEnd && !isSharingDisabled && (
+          <div className="p-3 bg-white/5 border border-white/10 rounded-lg text-white/60 text-sm mb-4">
+            <p>Location sharing automatically stops 1 hour after the trip ends.</p>
+            {autoStopTime && (
+              <p className="text-xs text-white/40 mt-1">
+                Auto-stop: {autoStopTime.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} at {autoStopTime.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+              </p>
+            )}
+          </div>
+        )}
+
+        {/* Trip ended message */}
+        {isSharingDisabled && (
+          <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-yellow-200/80 text-sm mb-4">
+            This trip has ended. Location sharing is no longer available.
+          </div>
+        )}
 
         {error && (
           <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm mb-4">
@@ -1151,6 +1328,7 @@ function LocationTab({ tripId, members }: { tripId: string; members: TripMember[
         <GoogleMapComponent
           memberLocations={allLocations}
           height="400px"
+          currentUserId={user?.id}
         />
 
         {lastUpdate && (
@@ -1223,6 +1401,7 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
   const { user } = useAuth();
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [uploadError, setUploadError] = useState('');
   const [showAftermovie, setShowAftermovie] = useState(false);
   const [generating, setGenerating] = useState(false);
@@ -1359,29 +1538,31 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
 
     setUploading(true);
     setUploadError('');
+    const fileArray = Array.from(files);
+    setUploadProgress({ current: 0, total: fileArray.length });
 
-    console.log('[MediaTab] Starting upload of', files.length, 'files');
+    console.log('[MediaTab] Starting upload of', fileArray.length, 'files');
 
-    for (const file of Array.from(files)) {
+    // Upload function for a single file
+    async function uploadSingleFile(file: File, index: number): Promise<boolean> {
       try {
         const fileExt = file.name.split('.').pop()?.toLowerCase();
-        const fileName = `${tripId}/${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+        const fileName = `${tripId}/${Date.now()}-${index}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
         const isVideo = file.type.startsWith('video/');
 
         console.log('[MediaTab] Uploading file:', fileName, 'Type:', file.type);
 
         // Upload to storage
-        const { error: uploadError, data: uploadData } = await supabase.storage
+        const { error: storageError, data: uploadData } = await supabase.storage
           .from('trip-media')
           .upload(fileName, file, {
             cacheControl: '3600',
             upsert: false
           });
 
-        if (uploadError) {
-          console.error('[MediaTab] Storage upload error:', uploadError);
-          setUploadError(`Upload failed: ${uploadError.message}`);
-          continue;
+        if (storageError) {
+          console.error('[MediaTab] Storage upload error:', storageError);
+          return false;
         }
 
         console.log('[MediaTab] Storage upload success:', uploadData);
@@ -1390,8 +1571,6 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
         const { data: { publicUrl } } = supabase.storage
           .from('trip-media')
           .getPublicUrl(fileName);
-
-        console.log('[MediaTab] Public URL:', publicUrl);
 
         // Save to database with geolocation
         const { error: dbError } = await supabase.from('trip_media').insert({
@@ -1405,18 +1584,42 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
 
         if (dbError) {
           console.error('[MediaTab] Database insert error:', dbError);
-          setUploadError(`Database error: ${dbError.message}`);
-        } else {
-          console.log('[MediaTab] Media saved to database');
+          return false;
         }
+
+        return true;
       } catch (err) {
         console.error('[MediaTab] Unexpected upload error:', err);
-        setUploadError(`Unexpected error: ${String(err)}`);
+        return false;
       }
+    }
+
+    // Upload in parallel batches of 3 to prevent overload
+    const batchSize = 3;
+    let successCount = 0;
+    let failCount = 0;
+
+    for (let i = 0; i < fileArray.length; i += batchSize) {
+      const batch = fileArray.slice(i, i + batchSize);
+      const results = await Promise.all(
+        batch.map((file, idx) => uploadSingleFile(file, i + idx))
+      );
+
+      results.forEach(success => {
+        if (success) successCount++;
+        else failCount++;
+      });
+
+      setUploadProgress({ current: Math.min(i + batchSize, fileArray.length), total: fileArray.length });
+    }
+
+    if (failCount > 0) {
+      setUploadError(`${failCount} of ${fileArray.length} files failed to upload`);
     }
 
     await loadMedia();
     setUploading(false);
+    setUploadProgress({ current: 0, total: 0 });
     if (fileInputRef.current) {
       fileInputRef.current.value = '';
     }
@@ -1583,7 +1786,7 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
           {uploading ? (
             <span className="flex items-center gap-2">
               <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              Uploading...
+              Uploading {uploadProgress.current}/{uploadProgress.total}...
             </span>
           ) : (
             'Upload Media'
@@ -1624,7 +1827,7 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
             {uploading ? (
               <span className="flex items-center gap-2">
                 <div className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                Uploading...
+                {uploadProgress.current}/{uploadProgress.total}
               </span>
             ) : (
               'Add Media'

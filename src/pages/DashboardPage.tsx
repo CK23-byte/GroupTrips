@@ -41,8 +41,9 @@ export default function DashboardPage() {
     const urlParams = new URLSearchParams(window.location.search);
     const paymentStatus = urlParams.get('payment');
     const sessionId = urlParams.get('session_id');
-    const savedTripData = sessionStorage.getItem('pendingTripData');
-    const pendingPayment = sessionStorage.getItem('pendingPayment');
+    // Use localStorage instead of sessionStorage (more persistent across redirects)
+    const savedTripData = localStorage.getItem('pendingTripData');
+    const pendingPayment = localStorage.getItem('pendingPayment');
 
     debugLog('Dashboard', 'Payment check on mount', {
       paymentStatus,
@@ -60,22 +61,17 @@ export default function DashboardPage() {
       setPaymentReturnDetected(true);
       setShowCreateModal(true);
     }
-    // Fallback to sessionStorage (for Payment Link flow without session_id)
+    // Payment Link flow: no session_id but payment=success
+    // Try to use localStorage trip data, or verify via userId fallback
     else if (paymentStatus === 'success' || pendingPayment === 'true') {
-      if (savedTripData) {
-        debugLog('Dashboard', 'Payment return detected WITH trip data - opening modal');
-        setPaymentReturnDetected(true);
-        setShowCreateModal(true);
-      } else {
-        debugLog('Dashboard', 'Payment return detected BUT NO trip data and no session_id!');
-        // Show error to user
-        alert('Payment was successful but trip data was lost. This can happen if you used a different browser tab. Please create the trip again - you will NOT be charged twice.');
-        window.history.replaceState({}, '', window.location.pathname);
-      }
+      debugLog('Dashboard', 'Payment return detected - opening modal for verification');
+      setPaymentReturnDetected(true);
+      setShowCreateModal(true);
+      // Modal will handle verification using localStorage or userId fallback
     } else if (paymentStatus === 'cancelled') {
       debugLog('Dashboard', 'Payment cancelled');
       window.history.replaceState({}, '', window.location.pathname);
-      sessionStorage.removeItem('pendingPayment');
+      localStorage.removeItem('pendingPayment');
     }
   }, []);
 
@@ -355,15 +351,13 @@ function CreateTripModal({
   const [returnTime, setReturnTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [debugInfo, setDebugInfo] = useState<string[]>([]);
   const [createdTrip, setCreatedTrip] = useState<Trip | null>(null);
   const [copied, setCopied] = useState(false);
   const hasProcessedPayment = useRef(false);
 
-  // Add debug info
+  // Add debug info (console only)
   function addDebug(msg: string) {
     debugLog('CreateTripModal', msg);
-    setDebugInfo(prev => [...prev, `${new Date().toISOString().split('T')[1].slice(0, 8)}: ${msg}`]);
   }
 
   // Check for payment success on mount
@@ -437,36 +431,115 @@ function CreateTripModal({
               setReturnTime(time?.slice(0, 5) || '');
             }
 
-            // Clear sessionStorage
-            sessionStorage.removeItem('pendingTripData');
-            sessionStorage.removeItem('pendingPayment');
+            // Clear localStorage
+            localStorage.removeItem('pendingTripData');
+            localStorage.removeItem('pendingPayment');
 
             // Create the trip
             createTripAfterPayment(tripData);
           } else {
-            // API verification failed, try sessionStorage as fallback
-            addDebug('API verification failed, trying sessionStorage fallback');
-            trySessionStorageFallback();
+            // API verification failed, try localStorage as fallback
+            addDebug('API verification failed, trying localStorage fallback');
+            tryLocalStorageFallback();
           }
         })
         .catch(err => {
-          addDebug(`API error: ${err}, trying sessionStorage fallback`);
-          trySessionStorageFallback();
+          addDebug(`API error: ${err}, trying localStorage fallback`);
+          tryLocalStorageFallback();
         });
 
       return;
     }
 
-    // No session_id, use sessionStorage
-    trySessionStorageFallback();
+    // No session_id (Payment Link flow) - verify payment via userId and use localStorage for trip data
+    addDebug('No session_id - Payment Link flow, verifying via userId...');
+    setStep('creating');
+    setLoading(true);
 
-    function trySessionStorageFallback() {
-      const savedTripData = sessionStorage.getItem('pendingTripData');
-      addDebug(`SessionStorage fallback: hasTripData=${!!savedTripData}`);
+    // First, verify payment was made for this user
+    fetch('/api/verify-payment', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: user.id }),
+    })
+      .then(res => res.json())
+      .then(data => {
+        addDebug(`Payment verification response: ${JSON.stringify(data)}`);
+
+        if (data.success) {
+          addDebug('Payment verified for user, now checking localStorage for trip data');
+          tryLocalStorageFallback();
+        } else {
+          addDebug('Payment verification failed');
+          setError('Could not verify payment. If you paid, please contact support.');
+          setStep('details');
+          setLoading(false);
+        }
+      })
+      .catch(err => {
+        addDebug(`Payment verification error: ${err}`);
+        // Still try localStorage as fallback
+        tryLocalStorageFallback();
+      });
+
+    async function tryLocalStorageFallback() {
+      // First try to fetch from Supabase pending_trips table
+      if (user?.id) {
+        addDebug(`Checking Supabase pending_trips for user ${user.id}`);
+        const { data: pendingTrip, error: fetchError } = await supabase
+          .from('pending_trips')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+
+        if (!fetchError && pendingTrip) {
+          addDebug(`Found pending trip in Supabase: ${JSON.stringify(pendingTrip)}`);
+
+          // Delete the pending trip from Supabase
+          await supabase.from('pending_trips').delete().eq('user_id', user.id);
+          localStorage.removeItem('pendingTripData');
+          localStorage.removeItem('pendingPayment');
+
+          const tripData = {
+            name: pendingTrip.name,
+            groupName: pendingTrip.group_name || '',
+            description: pendingTrip.description || '',
+            departureTime: pendingTrip.departure_time,
+            returnTime: pendingTrip.return_time,
+          };
+
+          // Populate form fields
+          setName(tripData.name || '');
+          setGroupName(tripData.groupName || '');
+          setDescription(tripData.description || '');
+
+          if (tripData.departureTime) {
+            const dt = new Date(tripData.departureTime);
+            setDepartureDate(dt.toISOString().split('T')[0]);
+            setDepartureTime(dt.toTimeString().slice(0, 5));
+          }
+          if (tripData.returnTime) {
+            const rt = new Date(tripData.returnTime);
+            setReturnDate(rt.toISOString().split('T')[0]);
+            setReturnTime(rt.toTimeString().slice(0, 5));
+          }
+
+          setStep('creating');
+          addDebug('Starting trip creation from Supabase data...');
+          createTripAfterPayment(tripData);
+          return;
+        } else {
+          addDebug(`Supabase fetch failed or empty: ${fetchError?.message || 'no data'}`);
+        }
+      }
+
+      // Fallback to localStorage
+      const savedTripData = localStorage.getItem('pendingTripData');
+      addDebug(`localStorage fallback: hasTripData=${!!savedTripData}`);
 
       if (!savedTripData) {
-        addDebug('ERROR: No saved trip data found!');
-        setError('Trip data was lost. Please create the trip again.');
+        addDebug('ERROR: No saved trip data found in localStorage or Supabase!');
+        setError('Payment was successful but trip data was lost. This can happen if you used a different browser tab. Please create the trip again - you will NOT be charged twice.');
         setStep('details');
         setLoading(false);
         return;
@@ -474,12 +547,11 @@ function CreateTripModal({
 
       try {
         const tripData = JSON.parse(savedTripData);
-        addDebug(`Parsed trip data: ${JSON.stringify(tripData)}`);
+        addDebug(`Parsed trip data from localStorage: ${JSON.stringify(tripData)}`);
 
-        // Clear sessionStorage to prevent re-triggering
-        sessionStorage.removeItem('pendingTripData');
-        sessionStorage.removeItem('pendingPayment');
-        sessionStorage.removeItem('returnAfterLogin');
+        // Clear localStorage to prevent re-triggering
+        localStorage.removeItem('pendingTripData');
+        localStorage.removeItem('pendingPayment');
 
         // Populate form fields
         setName(tripData.name || '');
@@ -499,7 +571,7 @@ function CreateTripModal({
 
         // Set to creating state and create trip
         setStep('creating');
-        addDebug('Starting trip creation...');
+        addDebug('Starting trip creation from localStorage...');
         createTripAfterPayment(tripData);
 
       } catch (err) {
@@ -637,7 +709,7 @@ function CreateTripModal({
     }
   }
 
-  function handleProceedToPayment(e: React.FormEvent) {
+  async function handleProceedToPayment(e: React.FormEvent) {
     e.preventDefault();
     addDebug('handleProceedToPayment called');
 
@@ -685,8 +757,30 @@ function CreateTripModal({
       returnTime: returnDateTimeStr
     };
 
-    addDebug(`Saving trip data: ${JSON.stringify(tripData)}`);
-    sessionStorage.setItem('pendingTripData', JSON.stringify(tripData));
+    // Save to Supabase pending_trips table (survives cross-domain redirects)
+    if (user?.id) {
+      addDebug(`Saving trip data to Supabase pending_trips for user ${user.id}`);
+      const { error: upsertError } = await supabase
+        .from('pending_trips')
+        .upsert({
+          user_id: user.id,
+          name: tripData.name,
+          group_name: tripData.groupName,
+          description: tripData.description,
+          departure_time: tripData.departureTime,
+          return_time: tripData.returnTime,
+        }, { onConflict: 'user_id' });
+
+      if (upsertError) {
+        addDebug(`Failed to save to Supabase: ${upsertError.message}, falling back to localStorage`);
+      } else {
+        addDebug('Trip data saved to Supabase successfully');
+      }
+    }
+
+    // Also save to localStorage as backup
+    addDebug(`Saving trip data to localStorage: ${JSON.stringify(tripData)}`);
+    localStorage.setItem('pendingTripData', JSON.stringify(tripData));
     setStep('payment');
   }
 
@@ -706,7 +800,7 @@ function CreateTripModal({
         url.searchParams.set('prefilled_email', user.email);
       }
 
-      sessionStorage.setItem('pendingPayment', 'true');
+      localStorage.setItem('pendingPayment', 'true');
       addDebug(`Redirecting to Stripe Payment Link: ${url.toString()}`);
       window.location.href = url.toString();
       return;
@@ -714,7 +808,7 @@ function CreateTripModal({
 
     // Fallback to API if no Payment Link configured
     addDebug('No Payment Link configured, using API');
-    const savedTripData = sessionStorage.getItem('pendingTripData');
+    const savedTripData = localStorage.getItem('pendingTripData');
     let tripData: { name: string; groupName: string; description: string; departureTime: string; returnTime?: string } | null = null;
 
     if (savedTripData) {
@@ -746,7 +840,7 @@ function CreateTripModal({
       addDebug(`API response: ${JSON.stringify(data)}`);
 
       if (data.url) {
-        sessionStorage.setItem('pendingPayment', 'true');
+        localStorage.setItem('pendingPayment', 'true');
         window.location.href = data.url;
         return;
       }
@@ -842,15 +936,6 @@ function CreateTripModal({
             </>
           ) : null}
 
-          {/* Debug info - always show for troubleshooting */}
-          {debugInfo.length > 0 && (
-            <div className="mt-4 p-3 bg-black/30 rounded-lg text-left text-xs font-mono max-h-40 overflow-y-auto">
-              <p className="text-white/50 mb-1">Debug Log:</p>
-              {debugInfo.map((info, i) => (
-                <p key={i} className="text-white/70">{info}</p>
-              ))}
-            </div>
-          )}
         </div>
       </div>
     );
@@ -1058,15 +1143,6 @@ function CreateTripModal({
           </div>
         </form>
 
-        {/* Debug info for troubleshooting */}
-        {debugInfo.length > 0 && (
-          <div className="mt-4 p-3 bg-black/30 rounded-lg text-left text-xs font-mono max-h-32 overflow-y-auto">
-            <p className="text-white/50 mb-1">Debug:</p>
-            {debugInfo.slice(-5).map((info, i) => (
-              <p key={i} className="text-white/70">{info}</p>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
