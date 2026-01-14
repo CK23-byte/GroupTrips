@@ -46,16 +46,27 @@ export async function uploadFile(
   path: string,
   file: File
 ): Promise<string | null> {
-  const { error } = await supabase.storage
+  console.log(`[uploadFile] Starting upload to ${bucket}/${path}, size: ${file.size} bytes`);
+
+  const { error, data: uploadData } = await supabase.storage
     .from(bucket)
     .upload(path, file, { upsert: true });
 
   if (error) {
-    console.error('Upload error:', error);
+    console.error('[uploadFile] Upload error:', {
+      message: error.message,
+      name: error.name,
+      bucket,
+      path,
+      fileSize: file.size,
+      fileType: file.type
+    });
     return null;
   }
 
+  console.log('[uploadFile] Upload successful:', uploadData);
   const { data } = supabase.storage.from(bucket).getPublicUrl(path);
+  console.log('[uploadFile] Public URL:', data.publicUrl);
   return data.publicUrl;
 }
 

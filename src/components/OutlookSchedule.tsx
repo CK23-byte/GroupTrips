@@ -95,13 +95,22 @@ export default function OutlookSchedule({
 
   // Responsive: show fewer days on mobile
   const [isMobile, setIsMobile] = useState(false);
+  // View mode: 1, 3, or 7 days
+  const [viewMode, setViewMode] = useState<1 | 3 | 7>(3);
 
   useEffect(() => {
-    const checkMobile = () => setIsMobile(window.innerWidth < 640);
+    const checkMobile = () => {
+      const mobile = window.innerWidth < 640;
+      setIsMobile(mobile);
+      // On mobile, force 1-day view
+      if (mobile && viewMode !== 1) {
+        setViewMode(1);
+      }
+    };
     checkMobile();
     window.addEventListener('resize', checkMobile);
     return () => window.removeEventListener('resize', checkMobile);
-  }, []);
+  }, [viewMode]);
 
   // Scroll to 6am on mount
   useEffect(() => {
@@ -111,7 +120,7 @@ export default function OutlookSchedule({
     }
   }, []);
 
-  const daysToShow = isMobile ? 1 : 3;
+  const daysToShow = isMobile ? 1 : viewMode;
 
   // Calculate the date range for the trip
   const tripStart = new Date(tripStartDate);
@@ -286,6 +295,25 @@ export default function OutlookSchedule({
           >
             <ChevronRight className="w-5 h-5" />
           </button>
+
+          {/* View mode toggle - hidden on mobile */}
+          {!isMobile && (
+            <div className="ml-2 flex items-center bg-white/5 rounded-lg p-0.5">
+              {([3, 7] as const).map((mode) => (
+                <button
+                  key={mode}
+                  onClick={() => setViewMode(mode)}
+                  className={`px-3 py-1 text-xs font-medium rounded-md transition-colors ${
+                    viewMode === mode
+                      ? 'bg-blue-500/30 text-blue-400'
+                      : 'text-white/50 hover:text-white/70'
+                  }`}
+                >
+                  {mode}d
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         <div className="text-lg font-semibold">
@@ -399,7 +427,7 @@ export default function OutlookSchedule({
           const { dayName, dateNum, month, isToday } = formatDateHeader(date);
 
           return (
-            <div key={dateStr} className="flex-1 min-w-[150px] border-r border-white/10 last:border-r-0">
+            <div key={dateStr} className={`flex-1 border-r border-white/10 last:border-r-0 ${viewMode === 7 ? 'min-w-[100px]' : 'min-w-[150px]'}`}>
               {/* Day header */}
               <div
                 className={`h-16 border-b border-white/10 p-2 text-center ${

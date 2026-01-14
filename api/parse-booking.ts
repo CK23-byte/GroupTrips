@@ -17,6 +17,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
+    // Get current year for date context
+    const currentYear = new Date().getFullYear();
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -29,6 +32,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           {
             role: 'system',
             content: `You are a booking confirmation parser. Extract schedule items from booking confirmations, reservation emails, or trip-related text.
+
+IMPORTANT: The current year is ${currentYear}. When dates don't include a year, assume they are for ${currentYear} or ${currentYear + 1} (whichever makes more sense). Never use years before ${currentYear}.
 
 The trip dates are: ${tripStartDate || 'unknown'} to ${tripEndDate || 'unknown'}
 
