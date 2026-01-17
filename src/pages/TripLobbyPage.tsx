@@ -65,7 +65,7 @@ export default function TripLobbyPage() {
   const [members, setMembers] = useState<TripMember[]>([]);
   const [messages, setMessages] = useState<TripMessage[]>([]);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
-  const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
@@ -138,18 +138,18 @@ export default function TripLobbyPage() {
         setSchedule(scheduleData as ScheduleItem[]);
       }
 
-      // Load user's ticket - use maybeSingle to avoid 406 error when no ticket exists
-      const { data: ticketData, error: ticketError } = await supabase
+      // Load user's tickets (can have multiple - outbound, return, etc.)
+      const { data: ticketsData, error: ticketsError } = await supabase
         .from('tickets')
         .select('*')
         .eq('trip_id', tripId)
         .eq('member_id', user.id)
-        .maybeSingle();
+        .order('departure_time', { ascending: true });
 
-      console.log('[TripLobby] Ticket:', ticketData, 'Error:', ticketError);
+      console.log('[TripLobby] Tickets:', ticketsData?.length, 'Error:', ticketsError);
 
-      if (ticketData) {
-        setTicket(ticketData as Ticket);
+      if (ticketsData) {
+        setTickets(ticketsData as Ticket[]);
       }
     } catch (err) {
       console.error('[TripLobby] Unexpected error:', err);
@@ -191,7 +191,7 @@ export default function TripLobbyPage() {
   }
 
   const departure = new Date(trip.departure_time);
-  const revealStatus = ticket ? getTicketRevealStatus(trip.departure_time) : 'hidden';
+  const revealStatus = tickets.length > 0 ? getTicketRevealStatus(trip.departure_time) : 'hidden';
 
   return (
     <div className="min-h-screen">
@@ -312,7 +312,7 @@ export default function TripLobbyPage() {
         {activeTab === 'overview' && (
           <OverviewTab
             trip={trip}
-            ticket={ticket}
+            tickets={tickets}
             messages={messages}
             schedule={schedule}
             revealStatus={revealStatus}
@@ -322,7 +322,7 @@ export default function TripLobbyPage() {
         )}
         {activeTab === 'tickets' && (
           <TicketReveal
-            ticket={ticket}
+            tickets={tickets}
             revealStatus={revealStatus}
             departureTime={trip.departure_time}
             trip={trip}
@@ -496,7 +496,7 @@ function isActivityRevealed(startTime: string): boolean {
 
 function OverviewTab({
   trip,
-  ticket,
+  tickets,
   messages,
   schedule,
   revealStatus,
@@ -504,7 +504,7 @@ function OverviewTab({
   isAdmin,
 }: {
   trip: Trip;
-  ticket: Ticket | null;
+  tickets: Ticket[];
   messages: TripMessage[];
   schedule: ScheduleItem[];
   revealStatus: string;
@@ -522,22 +522,42 @@ function OverviewTab({
         <div className="card p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FileText className="w-5 h-5 text-blue-400" />
-            Your Ticket
+            Your Tickets
           </h2>
-          {ticket ? (
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-white/60 text-sm mb-1">Status</p>
-                <p className="font-medium">
-                  {revealStatus === 'full'
-                    ? 'Fully visible'
-                    : revealStatus === 'qr_only'
-                    ? 'QR code available'
-                    : 'Still hidden'}
-                </p>
-              </div>
-              <button onClick={onViewTicket} className="btn-primary text-sm">
-                View Ticket
+          {tickets.length > 0 ? (
+            <div className="space-y-3">
+              {tickets.map((ticket) => (
+                <div key={ticket.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                  <div>
+                    <p className="font-medium">
+                      {ticket.type === 'flight' && ticket.flight_number
+                        ? `${ticket.carrier || ''} ${ticket.flight_number}`.trim()
+                        : ticket.type === 'event'
+                        ? ticket.carrier || 'Event'
+                        : ticket.type}
+                    </p>
+                    <p className="text-white/50 text-sm">
+                      {ticket.departure_location} → {ticket.arrival_location}
+                      {ticket.departure_time && (
+                        <span className="ml-2">
+                          {new Date(ticket.departure_time).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    revealStatus === 'full'
+                      ? 'bg-green-500/20 text-green-400'
+                      : revealStatus === 'qr_only'
+                      ? 'bg-yellow-500/20 text-yellow-400'
+                      : 'bg-white/10 text-white/50'
+                  }`}>
+                    {revealStatus === 'full' ? 'Visible' : revealStatus === 'qr_only' ? 'QR Ready' : 'Hidden'}
+                  </span>
+                </div>
+              ))}
+              <button onClick={onViewTicket} className="btn-primary text-sm w-full mt-2">
+                View All Tickets
               </button>
             </div>
           ) : (
@@ -1103,13 +1123,40 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
       return;
     }
 
+    // Check permission status first (if available)
+    if (navigator.permissions) {
+      try {
+        const permission = await navigator.permissions.query({ name: 'geolocation' });
+        locationLog('Permission status', permission.state);
+        if (permission.state === 'denied') {
+          setError('Location access is blocked. Please enable it in your browser settings and reload the page.');
+          locationLog('Location permission denied');
+          return;
+        }
+      } catch (e) {
+        locationLog('Could not check permission status', e);
+      }
+    }
+
     setSharing(true);
     setGettingLocation(true);
     setError('');
     setDebugMsg('Requesting location permission...');
+    locationLog('Calling watchPosition...');
+
+    // Timeout to catch silent failures
+    const timeoutId = setTimeout(() => {
+      if (gettingLocation) {
+        locationLog('watchPosition timeout - no response after 20s');
+        setDebugMsg('Location request timed out. Try again or check browser permissions.');
+        setError('Could not get location. Please check your browser permissions and try again.');
+        setGettingLocation(false);
+      }
+    }, 20000);
 
     const id = navigator.geolocation.watchPosition(
       async (position) => {
+        clearTimeout(timeoutId);
         const { latitude, longitude, accuracy } = position.coords;
         locationLog('Position received', { latitude, longitude, accuracy });
         setMyLocation({ lat: latitude, lng: longitude });
@@ -1135,6 +1182,7 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
         }
       },
       (err) => {
+        clearTimeout(timeoutId);
         locationLog('Geolocation error', { code: err.code, message: err.message });
         let errorMsg = 'Error getting location';
         switch (err.code) {

@@ -13,6 +13,8 @@ import {
   Sparkles,
   Crown,
   Loader2,
+  Eye,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, uploadFile } from '../lib/supabase';
@@ -229,6 +231,23 @@ function TicketsSection({
 }) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TripMember | null>(null);
+  const [viewingTicket, setViewingTicket] = useState<Ticket | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  async function handleDeleteTicket(ticketId: string) {
+    if (!confirm('Are you sure you want to delete this ticket?')) return;
+
+    setDeleting(true);
+    const { error } = await supabase.from('tickets').delete().eq('id', ticketId);
+    setDeleting(false);
+
+    if (error) {
+      alert('Failed to delete ticket: ' + error.message);
+      return;
+    }
+
+    onRefresh();
+  }
 
   return (
     <div>
@@ -274,31 +293,47 @@ function TicketsSection({
                   </button>
                 </div>
                 {memberTickets.length > 0 && (
-                  <div className="ml-13 space-y-2 mt-2 pl-13">
+                  <div className="space-y-2 mt-3">
                     {memberTickets.map((ticket) => (
-                      <div key={ticket.id} className="flex items-center justify-between p-2 bg-white/5 rounded-lg text-sm">
-                        <div className="flex items-center gap-2">
-                          <span className="text-green-400">✓</span>
-                          <span>
-                            {ticket.type === 'flight' && ticket.flight_number && (
-                              <span className="font-medium">{ticket.carrier} {ticket.flight_number}</span>
-                            )}
-                            {ticket.type === 'event' && (
-                              <span className="font-medium">{ticket.carrier || 'Event'}</span>
-                            )}
-                            {ticket.type !== 'flight' && ticket.type !== 'event' && (
-                              <span className="font-medium">{ticket.type}</span>
-                            )}
-                            {ticket.departure_time && (
-                              <span className="text-white/50 ml-2">
-                                {new Date(ticket.departure_time).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}
-                              </span>
-                            )}
-                          </span>
+                      <div key={ticket.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg text-sm">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <span className="text-green-400 flex-shrink-0">✓</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium truncate">
+                              {ticket.type === 'flight' && ticket.flight_number
+                                ? `${ticket.carrier || ''} ${ticket.flight_number}`.trim()
+                                : ticket.type === 'event'
+                                ? ticket.carrier || 'Event'
+                                : ticket.type}
+                            </p>
+                            <p className="text-white/40 text-xs truncate">
+                              {ticket.departure_location} → {ticket.arrival_location}
+                              {ticket.departure_time && (
+                                <span className="ml-2">
+                                  {new Date(ticket.departure_time).toLocaleDateString('en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                            </p>
+                          </div>
                         </div>
-                        <span className="text-white/40">
-                          {ticket.departure_location} → {ticket.arrival_location}
-                        </span>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          {ticket.full_ticket_url && (
+                            <button
+                              onClick={() => setViewingTicket(ticket)}
+                              className="p-1.5 hover:bg-white/10 rounded text-blue-400 transition-colors"
+                              title="View ticket"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => handleDeleteTicket(ticket.id)}
+                            className="p-1.5 hover:bg-red-500/20 rounded text-red-400 transition-colors"
+                            title="Delete ticket"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>
@@ -327,6 +362,43 @@ function TicketsSection({
             onRefresh();
           }}
         />
+      )}
+
+      {/* View Ticket Modal */}
+      {viewingTicket && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setViewingTicket(null)}
+        >
+          <div
+            className="relative max-w-2xl w-full max-h-[90vh] overflow-auto bg-slate-800 rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setViewingTicket(null)}
+              className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 rounded-full transition-colors z-10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="p-4">
+              <h3 className="font-semibold mb-2">
+                {viewingTicket.type === 'flight' && viewingTicket.flight_number
+                  ? `${viewingTicket.carrier || ''} ${viewingTicket.flight_number}`.trim()
+                  : viewingTicket.carrier || viewingTicket.type}
+              </h3>
+              <p className="text-sm text-white/50 mb-4">
+                {viewingTicket.departure_location} → {viewingTicket.arrival_location}
+              </p>
+            </div>
+            {viewingTicket.full_ticket_url && (
+              <img
+                src={viewingTicket.full_ticket_url}
+                alt="Ticket"
+                className="w-full"
+              />
+            )}
+          </div>
+        </div>
       )}
     </div>
   );

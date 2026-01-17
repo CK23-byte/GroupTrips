@@ -1,10 +1,10 @@
 import { useState, useEffect } from 'react';
-import { QrCode, Plane, Train, Bus, MapPin, AlertCircle, Ticket as TicketIcon } from 'lucide-react';
+import { QrCode, Plane, Train, Bus, MapPin, AlertCircle, Ticket as TicketIcon, ChevronLeft, Wallet } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Ticket, TicketRevealStatus, Trip } from '../types';
 
 interface TicketRevealProps {
-  ticket: Ticket | null;
+  tickets: Ticket[];
   revealStatus: TicketRevealStatus;
   departureTime: string;
   trip?: Trip | null;
@@ -20,12 +20,13 @@ const typeIcons: Record<Ticket['type'], typeof Plane> = {
 };
 
 export default function TicketReveal({
-  ticket,
+  tickets,
   revealStatus,
   departureTime,
   trip,
   userName,
 }: TicketRevealProps) {
+  const [selectedTicketIndex, setSelectedTicketIndex] = useState<number | null>(null);
   const [showAnimation, setShowAnimation] = useState(false);
   const [showQRModal, setShowQRModal] = useState(false);
 
@@ -35,11 +36,12 @@ export default function TicketReveal({
     }
   }, [revealStatus]);
 
-  if (!ticket) {
+  // No tickets
+  if (tickets.length === 0) {
     return (
       <div className="card p-8 md:p-12 text-center">
         <AlertCircle className="w-12 h-12 md:w-16 md:h-16 text-white/20 mx-auto mb-4" />
-        <h2 className="text-lg md:text-xl font-semibold mb-2">No Ticket</h2>
+        <h2 className="text-lg md:text-xl font-semibold mb-2">No Tickets</h2>
         <p className="text-white/50 text-sm md:text-base">
           The admin hasn't uploaded your ticket yet.
           <br />
@@ -49,15 +51,94 @@ export default function TicketReveal({
     );
   }
 
+  // Multiple tickets - show list
+  if (selectedTicketIndex === null) {
+    return (
+      <div className="max-w-md mx-auto">
+        <div className="card p-6">
+          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+            <TicketIcon className="w-5 h-5 text-blue-400" />
+            Your Tickets ({tickets.length})
+          </h2>
+          <div className="space-y-3">
+            {tickets.map((ticket, index) => {
+              const TypeIcon = typeIcons[ticket.type] || MapPin;
+              return (
+                <button
+                  key={ticket.id}
+                  onClick={() => setSelectedTicketIndex(index)}
+                  className="w-full p-4 bg-white/5 hover:bg-white/10 rounded-xl transition-colors text-left"
+                >
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-fuchsia-500 to-purple-600 flex items-center justify-center flex-shrink-0">
+                      <TypeIcon className="w-6 h-6" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold">
+                        {ticket.type === 'flight' && ticket.flight_number
+                          ? `${ticket.carrier || ''} ${ticket.flight_number}`.trim()
+                          : ticket.type === 'event'
+                          ? ticket.carrier || 'Event'
+                          : ticket.carrier || ticket.type}
+                      </p>
+                      <p className="text-sm text-white/50 truncate">
+                        {ticket.departure_location} → {ticket.arrival_location}
+                      </p>
+                      {ticket.departure_time && (
+                        <p className="text-xs text-white/40">
+                          {new Date(ticket.departure_time).toLocaleString('en-US', {
+                            weekday: 'short',
+                            day: 'numeric',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
+                        </p>
+                      )}
+                    </div>
+                    <div className={`text-xs px-2 py-1 rounded-full flex-shrink-0 ${
+                      revealStatus === 'full'
+                        ? 'bg-green-500/20 text-green-400'
+                        : revealStatus === 'qr_only'
+                        ? 'bg-yellow-500/20 text-yellow-400'
+                        : 'bg-white/10 text-white/50'
+                    }`}>
+                      {revealStatus === 'full' ? 'Ready' : revealStatus === 'qr_only' ? 'QR' : 'Hidden'}
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Single ticket selected - show details
+  const ticket = tickets[selectedTicketIndex];
+
   const TypeIcon = typeIcons[ticket.type] || MapPin;
 
   // Generate QR code data - use booking reference or create unique ID
   const qrData = ticket.booking_reference || `GT-${ticket.id.substring(0, 8).toUpperCase()}`;
 
+  // Back button component for when there are multiple tickets
+  const BackButton = () => tickets.length > 1 ? (
+    <button
+      onClick={() => setSelectedTicketIndex(null)}
+      className="flex items-center gap-2 text-white/60 hover:text-white mb-4 transition-colors"
+    >
+      <ChevronLeft className="w-4 h-4" />
+      Back to all tickets
+    </button>
+  ) : null;
+
   // Hidden state
   if (revealStatus === 'hidden') {
     return (
       <div className="max-w-md mx-auto">
+        <BackButton />
         <div className="card p-6 md:p-8 text-center">
           <div className="relative w-24 h-24 md:w-32 md:h-32 mx-auto mb-6">
             <div className="absolute inset-0 bg-gradient-to-br from-blue-500/20 to-fuchsia-500/20 rounded-2xl animate-pulse" />
@@ -97,6 +178,7 @@ export default function TicketReveal({
   if (revealStatus === 'qr_only') {
     return (
       <div className="max-w-md mx-auto">
+        <BackButton />
         <div className={`relative overflow-hidden rounded-3xl ${showAnimation ? 'ticket-reveal' : ''}`}>
           {/* Gradient background like Freshtival */}
           <div className="absolute inset-0 bg-gradient-to-br from-purple-900 via-fuchsia-900 to-purple-800" />
@@ -210,6 +292,7 @@ export default function TicketReveal({
   if (ticket.full_ticket_url) {
     return (
       <div className="max-w-md mx-auto">
+        <BackButton />
         <div className={`relative overflow-hidden rounded-3xl ${showAnimation ? 'ticket-reveal' : ''}`}>
           {/* Header banner */}
           <div className="bg-gradient-to-r from-green-500 to-emerald-600 p-4 text-center">
@@ -284,6 +367,7 @@ export default function TicketReveal({
   // Fallback: Festival style ticket (when no full_ticket_url)
   return (
     <div className="max-w-md mx-auto">
+      <BackButton />
       <div className={`relative overflow-hidden rounded-3xl ${showAnimation ? 'ticket-reveal' : ''}`}>
         {/* Gradient background like Freshtival */}
         <div className="absolute inset-0 bg-gradient-to-br from-purple-900 via-fuchsia-900 to-purple-800" />
