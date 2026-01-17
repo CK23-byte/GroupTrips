@@ -557,10 +557,14 @@ function TicketUploadModal({
     setLoading(true);
 
     try {
-      let fullTicketUrl = null;
+      let fullTicketUrl: string | null = null;
 
       if (fullTicketFile) {
-        console.log('[TicketUpload] Uploading file to storage...');
+        console.log('[TicketUpload] Uploading file to storage...', {
+          fileName: fullTicketFile.name,
+          fileSize: fullTicketFile.size,
+          fileType: fullTicketFile.type
+        });
 
         // Add timeout to prevent infinite waiting
         const uploadPromise = uploadFile(
@@ -569,17 +573,37 @@ function TicketUploadModal({
           fullTicketFile
         );
 
-        const timeoutPromise = new Promise<null>((_, reject) => {
+        const timeoutPromise = new Promise<string | null>((_, reject) => {
           setTimeout(() => reject(new Error('Upload timed out after 30 seconds')), 30000);
         });
 
         try {
           fullTicketUrl = await Promise.race([uploadPromise, timeoutPromise]);
-          console.log('[TicketUpload] File uploaded:', fullTicketUrl);
+          console.log('[TicketUpload] File uploaded successfully:', fullTicketUrl);
+
+          if (!fullTicketUrl) {
+            console.error('[TicketUpload] Upload returned null URL');
+            const continueWithout = confirm(
+              'File upload failed (no URL returned). This may be due to storage permissions.\n\n' +
+              'Do you want to save the ticket WITHOUT the image?\n' +
+              'You can re-upload the ticket later.'
+            );
+            if (!continueWithout) {
+              setLoading(false);
+              return;
+            }
+          }
         } catch (uploadError) {
           console.error('[TicketUpload] Upload error:', uploadError);
-          // Continue without file URL - user can still save ticket data
-          alert('File upload failed, but you can still save ticket details. You can re-upload the file later.');
+          const continueWithout = confirm(
+            `File upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}\n\n` +
+            'Do you want to save the ticket WITHOUT the image?\n' +
+            'You can re-upload the ticket later.'
+          );
+          if (!continueWithout) {
+            setLoading(false);
+            return;
+          }
         }
       }
 
@@ -588,6 +612,7 @@ function TicketUploadModal({
         member_id: selectedMemberId,
         type: ticketType,
         flight_number: flightNumber,
+        full_ticket_url: fullTicketUrl,
       });
 
       // Always insert new ticket (multiple tickets per person are allowed)

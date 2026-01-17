@@ -1156,29 +1156,36 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
 
     const id = navigator.geolocation.watchPosition(
       async (position) => {
-        clearTimeout(timeoutId);
-        const { latitude, longitude, accuracy } = position.coords;
-        locationLog('Position received', { latitude, longitude, accuracy });
-        setMyLocation({ lat: latitude, lng: longitude });
-        setGettingLocation(false);
-        setDebugMsg(`Got location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)} (accuracy: ${Math.round(accuracy)}m)`);
+        try {
+          clearTimeout(timeoutId);
+          const { latitude, longitude, accuracy } = position.coords;
+          locationLog('Position received', { latitude, longitude, accuracy });
+          setMyLocation({ lat: latitude, lng: longitude });
+          setGettingLocation(false);
+          setDebugMsg(`Got location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)} (accuracy: ${Math.round(accuracy)}m)`);
 
-        // Update location in database
-        const { error: upsertError } = await supabase.from('member_locations').upsert({
-          trip_id: tripId,
-          user_id: user.id,
-          latitude,
-          longitude,
-          updated_at: new Date().toISOString(),
-        });
+          // Update location in database
+          const { error: upsertError } = await supabase.from('member_locations').upsert({
+            trip_id: tripId,
+            user_id: user.id,
+            latitude,
+            longitude,
+            updated_at: new Date().toISOString(),
+          });
 
-        if (upsertError) {
-          locationLog('Error upserting location', upsertError);
-          setDebugMsg(`DB error: ${upsertError.message}`);
-        } else {
-          locationLog('Location saved to database');
-          // Reload to get the updated list
-          loadLocations();
+          if (upsertError) {
+            locationLog('Error upserting location', upsertError);
+            setDebugMsg(`DB error: ${upsertError.message}`);
+          } else {
+            locationLog('Location saved to database');
+            // Reload to get the updated list
+            loadLocations();
+          }
+        } catch (callbackError) {
+          // This can happen if a browser extension interferes with geolocation
+          locationLog('Error in position callback (possibly browser extension)', callbackError);
+          setError('Location callback error. A browser extension may be interfering with location services. Try disabling location-related extensions.');
+          setGettingLocation(false);
         }
       },
       (err) => {
@@ -1351,7 +1358,10 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
 
         {error && (
           <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm mb-4">
-            {error}
+            <p>{error}</p>
+            <p className="text-xs text-red-300/70 mt-2">
+              If location keeps failing, try disabling browser extensions (especially location-spoofing tools) or use a different browser.
+            </p>
           </div>
         )}
 
