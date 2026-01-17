@@ -314,15 +314,13 @@ function TicketsSection({
                           </div>
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
-                          {ticket.full_ticket_url && (
-                            <button
-                              onClick={() => setViewingTicket(ticket)}
-                              className="p-1.5 hover:bg-white/10 rounded text-blue-400 transition-colors"
-                              title="View ticket"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                          )}
+                          <button
+                            onClick={() => setViewingTicket(ticket)}
+                            className={`p-1.5 hover:bg-white/10 rounded transition-colors ${ticket.full_ticket_url ? 'text-blue-400' : 'text-white/30'}`}
+                            title={ticket.full_ticket_url ? "View ticket" : "View details (no image uploaded)"}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
                           <button
                             onClick={() => handleDeleteTicket(ticket.id)}
                             className="p-1.5 hover:bg-red-500/20 rounded text-red-400 transition-colors"
@@ -386,13 +384,51 @@ function TicketsSection({
               <p className="text-sm text-white/50 mb-4">
                 {viewingTicket.departure_location} → {viewingTicket.arrival_location}
               </p>
+              {/* Ticket details */}
+              <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+                {viewingTicket.departure_time && (
+                  <div>
+                    <p className="text-white/40">Departure</p>
+                    <p>{new Date(viewingTicket.departure_time).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                  </div>
+                )}
+                {viewingTicket.arrival_time && (
+                  <div>
+                    <p className="text-white/40">Arrival</p>
+                    <p>{new Date(viewingTicket.arrival_time).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                  </div>
+                )}
+                {viewingTicket.seat_number && (
+                  <div>
+                    <p className="text-white/40">Seat</p>
+                    <p>{viewingTicket.seat_number}</p>
+                  </div>
+                )}
+                {viewingTicket.gate && (
+                  <div>
+                    <p className="text-white/40">Gate</p>
+                    <p>{viewingTicket.gate}</p>
+                  </div>
+                )}
+                {viewingTicket.booking_reference && (
+                  <div>
+                    <p className="text-white/40">Reference</p>
+                    <p className="font-mono">{viewingTicket.booking_reference}</p>
+                  </div>
+                )}
+              </div>
             </div>
-            {viewingTicket.full_ticket_url && (
+            {viewingTicket.full_ticket_url ? (
               <img
                 src={viewingTicket.full_ticket_url}
                 alt="Ticket"
                 className="w-full"
               />
+            ) : (
+              <div className="p-6 text-center bg-white/5 m-4 rounded-xl">
+                <p className="text-white/40">No ticket image uploaded</p>
+                <p className="text-xs text-white/30 mt-1">Upload a ticket image to display it here</p>
+              </div>
             )}
           </div>
         </div>

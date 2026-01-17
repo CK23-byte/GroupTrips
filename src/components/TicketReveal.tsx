@@ -118,6 +118,15 @@ export default function TicketReveal({
   // Single ticket selected - show details
   const ticket = tickets[selectedTicketIndex];
 
+  // Debug: log ticket data to help diagnose display issues
+  console.log('[TicketReveal] Selected ticket:', {
+    id: ticket.id,
+    type: ticket.type,
+    full_ticket_url: ticket.full_ticket_url,
+    revealStatus,
+    hasImage: !!ticket.full_ticket_url
+  });
+
   const TypeIcon = typeIcons[ticket.type] || MapPin;
 
   // Generate QR code data - use booking reference or create unique ID
