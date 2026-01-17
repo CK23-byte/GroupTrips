@@ -134,6 +134,100 @@ export default function TicketReveal({
     </button>
   ) : null;
 
+  // If real ticket is available and we're past hidden state, show it immediately
+  // This prioritizes showing the actual uploaded ticket over the festival style
+  if (ticket.full_ticket_url && revealStatus !== 'hidden') {
+    return (
+      <div className="max-w-md mx-auto">
+        <BackButton />
+        <div className={`relative overflow-hidden rounded-3xl ${showAnimation ? 'ticket-reveal' : ''}`}>
+          {/* Header banner */}
+          <div className={`p-4 text-center ${revealStatus === 'full' ? 'bg-gradient-to-r from-green-500 to-emerald-600' : 'bg-gradient-to-r from-blue-500 to-cyan-600'}`}>
+            <p className="text-white font-bold text-lg flex items-center justify-center gap-2">
+              <TypeIcon className="w-5 h-5" />
+              {revealStatus === 'full' ? 'Your Ticket is Ready!' : 'Your Ticket'}
+            </p>
+            <p className="text-white/80 text-sm">
+              {revealStatus === 'full' ? 'Show this at check-in' : 'Destination revealed 1 hour before departure'}
+            </p>
+          </div>
+
+          {/* Full original ticket image */}
+          <img
+            src={ticket.full_ticket_url}
+            alt="Your Ticket"
+            className="w-full"
+          />
+        </div>
+
+        {/* Quick info below ticket */}
+        <div className="mt-4 p-4 bg-white/5 rounded-xl space-y-2">
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-white/50">Passenger</span>
+            <span className="font-medium">{userName || 'Traveler'}</span>
+          </div>
+          {ticket.departure_time && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/50">Departure</span>
+              <span className="font-medium">
+                {new Date(ticket.departure_time).toLocaleString('en-US', {
+                  weekday: 'short',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </span>
+            </div>
+          )}
+          {ticket.booking_reference && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/50">Reference</span>
+              <span className="font-mono font-medium">{ticket.booking_reference}</span>
+            </div>
+          )}
+          {revealStatus === 'full' && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/50">Route</span>
+              <span className="font-medium">{ticket.departure_location} → {ticket.arrival_location}</span>
+            </div>
+          )}
+        </div>
+
+        {/* QR Code as secondary (tappable) */}
+        {(ticket.qr_code_url || ticket.booking_reference) && (
+          <div
+            className="mt-4 flex flex-col items-center cursor-pointer p-4 bg-white/5 rounded-xl"
+            onClick={() => setShowQRModal(true)}
+          >
+            <p className="text-sm text-white/50 mb-2">Tap for enlarged QR code</p>
+            <div className="bg-white rounded-xl p-2">
+              {ticket.qr_code_url ? (
+                <img src={ticket.qr_code_url} alt="QR Code" className="w-24 h-24" />
+              ) : (
+                <QRCodeSVG value={qrData} size={96} level="H" includeMargin={false} />
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Countdown to full reveal if still in qr_only */}
+        {revealStatus === 'qr_only' && (
+          <CountdownToReveal departureTime={departureTime} fullReveal className="mt-4" />
+        )}
+
+        {/* QR Modal */}
+        {showQRModal && (
+          <QRModal
+            qrData={qrData}
+            qrUrl={ticket.qr_code_url}
+            onClose={() => setShowQRModal(false)}
+          />
+        )}
+      </div>
+    );
+  }
+
   // Hidden state
   if (revealStatus === 'hidden') {
     return (
