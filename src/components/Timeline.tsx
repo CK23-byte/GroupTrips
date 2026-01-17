@@ -270,10 +270,26 @@ function TimelineItem({
     return () => clearInterval(timer);
   }, [item.start_time]);
 
-  async function handleDelete() {
+  async function handleDelete(e: React.MouseEvent) {
+    e.stopPropagation();
+    e.preventDefault();
     if (!confirm('Are you sure you want to delete this activity?')) return;
-    await supabase.from('schedule_items').delete().eq('id', item.id);
-    window.location.reload();
+
+    try {
+      const { error } = await supabase.from('schedule_items').delete().eq('id', item.id);
+      if (error) {
+        console.error('[Timeline] Delete error:', error);
+        alert('Failed to delete: ' + error.message);
+        return;
+      }
+      // Use a slight delay to ensure the state is cleaned up before reload
+      setTimeout(() => {
+        window.location.reload();
+      }, 100);
+    } catch (err) {
+      console.error('[Timeline] Unexpected delete error:', err);
+      alert('An unexpected error occurred');
+    }
   }
 
   // Admin always sees everything
@@ -407,7 +423,10 @@ function TimelineItem({
 
         {isAdmin && (
           <div className="flex gap-1">
-            <button className="p-2 hover:bg-white/10 rounded-lg transition-colors">
+            <button
+              onClick={(e) => { e.stopPropagation(); onSelect(); }}
+              className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+            >
               <Edit2 className="w-4 h-4 text-white/40" />
             </button>
             <button

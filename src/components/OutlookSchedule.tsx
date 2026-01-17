@@ -391,8 +391,8 @@ export default function OutlookSchedule({
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-medium text-purple-200 truncate">{acc.title}</p>
                       <p className="text-xs text-white/50 truncate">
-                        {accStart.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}
-                        {acc.end_time && ` - ${accEnd.toLocaleDateString('nl-NL', { day: 'numeric', month: 'short' })}`}
+                        {accStart.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}
+                        {acc.end_time && ` - ${accEnd.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}`}
                       </p>
                     </div>
                   </div>
@@ -404,33 +404,21 @@ export default function OutlookSchedule({
       )}
 
       {/* Calendar grid - scrollable container */}
-      <div ref={scrollContainerRef} className="flex overflow-x-auto overflow-y-auto max-h-[600px]">
-        {/* Time labels column */}
-        <div className="w-16 flex-shrink-0 border-r border-white/10">
-          <div className="h-16 border-b border-white/10" /> {/* Header spacer */}
-          {HOURS.map(hour => (
-            <div
-              key={hour}
-              className="h-12 border-b border-white/5 px-2 flex items-start justify-end pt-0.5"
-            >
-              <span className="text-xs text-white/40">
-                {hour === 24 ? '00:00' : `${hour.toString().padStart(2, '0')}:00`}
-              </span>
-            </div>
-          ))}
-        </div>
+      <div ref={scrollContainerRef} className="overflow-x-auto overflow-y-auto max-h-[600px] relative">
+        {/* Sticky header row */}
+        <div className="flex sticky top-0 z-20 bg-slate-900">
+          {/* Time labels column header */}
+          <div className="w-16 flex-shrink-0 border-r border-white/10 h-16 border-b border-white/10 bg-slate-900" />
 
-        {/* Day columns */}
-        {displayDates.map(date => {
-          const dateStr = date.toISOString().split('T')[0];
-          const dayItems = itemsByDate[dateStr] || [];
-          const { dayName, dateNum, month, isToday } = formatDateHeader(date);
+          {/* Day column headers */}
+          {displayDates.map(date => {
+            const dateStr = date.toISOString().split('T')[0];
+            const { dayName, dateNum, month, isToday } = formatDateHeader(date);
 
-          return (
-            <div key={dateStr} className={`flex-1 border-r border-white/10 last:border-r-0 ${viewMode === 7 ? 'min-w-[100px]' : 'min-w-[150px]'}`}>
-              {/* Day header */}
+            return (
               <div
-                className={`h-16 border-b border-white/10 p-2 text-center ${
+                key={`header-${dateStr}`}
+                className={`flex-1 border-r border-white/10 last:border-r-0 ${viewMode === 7 ? 'min-w-[100px]' : 'min-w-[150px]'} h-16 border-b border-white/10 p-2 text-center bg-slate-900 ${
                   isToday ? 'bg-blue-500/10' : ''
                 }`}
               >
@@ -442,9 +430,36 @@ export default function OutlookSchedule({
                 </p>
                 <p className="text-xs text-white/40">{month}</p>
               </div>
+            );
+          })}
+        </div>
 
-              {/* Time slots */}
-              <div className="relative" style={{ height: `${HOURS.length * 48}px` }}>
+        {/* Scrollable content */}
+        <div className="flex">
+          {/* Time labels column */}
+          <div className="w-16 flex-shrink-0 border-r border-white/10" style={{ minHeight: `${HOURS.length * 48}px` }}>
+            {HOURS.map(hour => (
+              <div
+                key={hour}
+                className="h-12 border-b border-white/5 px-2 flex items-start justify-end pt-0.5"
+              >
+                <span className="text-xs text-white/40">
+                  {hour === 24 ? '00:00' : `${hour.toString().padStart(2, '0')}:00`}
+                </span>
+              </div>
+            ))}
+          </div>
+
+          {/* Day columns */}
+          {displayDates.map(date => {
+            const dateStr = date.toISOString().split('T')[0];
+            const dayItems = itemsByDate[dateStr] || [];
+            const { isToday } = formatDateHeader(date);
+
+            return (
+              <div key={dateStr} className={`flex-1 border-r border-white/10 last:border-r-0 ${viewMode === 7 ? 'min-w-[100px]' : 'min-w-[150px]'} ${isToday ? 'bg-blue-500/5' : ''}`} style={{ minHeight: `${HOURS.length * 48}px` }}>
+                {/* Time slots - covers full 24 hours */}
+                <div className="relative" style={{ height: `${HOURS.length * 48}px` }}>
                 {/* Hour grid lines */}
                 {HOURS.map((_, index) => (
                   <div
@@ -544,6 +559,7 @@ export default function OutlookSchedule({
             </div>
           );
         })}
+        </div>
       </div>
 
       {/* Legend */}
@@ -1659,7 +1675,7 @@ function AIImportModal({
 
   async function handleParse() {
     if (!inputText.trim()) {
-      setError('Plak een bevestigingsmail of boekingstekst');
+      setError('Please paste a booking confirmation or text');
       return;
     }
 
@@ -1685,12 +1701,12 @@ function AIImportModal({
       } else if (data.items && data.items.length > 0) {
         setParsedItems(data.items);
       } else if (data.raw) {
-        setError('Kon de tekst niet verwerken. Probeer het opnieuw.');
+        setError('Could not process the text. Please try again.');
       } else {
-        setError('Geen boekingen gevonden in de tekst.');
+        setError('No bookings found in the text.');
       }
     } catch {
-      setError('Er ging iets mis. Probeer het opnieuw.');
+      setError('Something went wrong. Please try again.');
     }
 
     setLoading(false);
@@ -1721,7 +1737,7 @@ function AIImportModal({
       }
     } catch (e) {
       console.error('[AIImport] Invalid date format:', item.start_time, e);
-      setError(`Ongeldige datum: ${item.start_time}`);
+      setError(`Invalid date format: ${item.start_time}`);
       setAdding(null);
       return;
     }
@@ -1770,13 +1786,13 @@ function AIImportModal({
 
         if (retryError) {
           console.error('[AIImport] Retry also failed:', retryError);
-          setError(`Kon niet toevoegen: ${retryError.message}`);
+          setError(`Failed to add: ${retryError.message}`);
           setAdding(null);
           return;
         }
         console.log('[AIImport] Retry succeeded');
       } else {
-        setError(`Kon niet toevoegen: ${insertError.message}`);
+        setError(`Failed to add: ${insertError.message}`);
         setAdding(null);
         return;
       }
@@ -1813,7 +1829,7 @@ function AIImportModal({
           </div>
           <div>
             <h2 className="text-xl font-bold">AI Import</h2>
-            <p className="text-sm text-white/50">Plak bevestigingsmails om agenda-items aan te maken</p>
+            <p className="text-sm text-white/50">Paste booking confirmations to create schedule items</p>
           </div>
         </div>
 
@@ -1821,33 +1837,33 @@ function AIImportModal({
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-white/70 mb-2">
-                Plak hier je bevestigingsmail of boekingstekst
+                Paste your booking confirmation or text here
               </label>
               <textarea
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 className="input-field resize-none font-mono text-sm"
                 rows={12}
-                placeholder={`Bijvoorbeeld:
+                placeholder={`For example:
 
-Je reservering is bevestigd.
+Your reservation is confirmed.
 
 Hotel Berchielli
-Check-in: donderdag 15 januari 2026 (14:00)
-Check-out: vrijdag 16 januari 2026 (11:00)
-Adres: Lungarno Acciaiuoli, 14, Florence
-Totaalprijs: €272,98
-Referentie: ABC123456`}
+Check-in: Thursday 15 January 2026 (14:00)
+Check-out: Friday 16 January 2026 (11:00)
+Address: Lungarno Acciaiuoli, 14, Florence
+Total price: €272.98
+Reference: ABC123456`}
               />
             </div>
 
             <div className="bg-blue-500/10 border border-blue-500/30 rounded-xl p-4 text-sm">
               <p className="font-medium text-blue-400 mb-2">💡 Tips</p>
               <ul className="text-white/60 space-y-1">
-                <li>• Kopieer de volledige bevestigingsmail</li>
-                <li>• Werkt met hotels, vluchten, treinen, activiteiten</li>
-                <li>• Meerdere boekingen in één tekst? Geen probleem!</li>
-                <li>• De AI herkent automatisch data, tijden en prijzen</li>
+                <li>• Copy the complete confirmation email</li>
+                <li>• Works with hotels, flights, trains, activities</li>
+                <li>• Multiple bookings in one text? No problem!</li>
+                <li>• AI automatically recognizes dates, times and prices</li>
               </ul>
             </div>
 
@@ -1859,7 +1875,7 @@ Referentie: ABC123456`}
 
             <div className="flex gap-3 pt-2">
               <button onClick={onClose} className="btn-secondary flex-1">
-                Annuleren
+                Cancel
               </button>
               <button
                 onClick={handleParse}
@@ -1869,12 +1885,12 @@ Referentie: ABC123456`}
                 {loading ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Analyseren...
+                    Analyzing...
                   </>
                 ) : (
                   <>
                     <Sparkles className="w-4 h-4" />
-                    Analyseer met AI
+                    Analyze with AI
                   </>
                 )}
               </button>
@@ -1884,7 +1900,7 @@ Referentie: ABC123456`}
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <p className="text-sm text-white/60">
-                {parsedItems.length} item{parsedItems.length !== 1 ? 's' : ''} gevonden
+                {parsedItems.length} item{parsedItems.length !== 1 ? 's' : ''} found
               </p>
               {pendingCount > 0 && (
                 <button
@@ -1892,7 +1908,7 @@ Referentie: ABC123456`}
                   className="text-sm text-blue-400 hover:text-blue-300 flex items-center gap-1"
                 >
                   <Plus className="w-4 h-4" />
-                  Alles toevoegen ({pendingCount})
+                  Add all ({pendingCount})
                 </button>
               )}
             </div>
@@ -1926,7 +1942,7 @@ Referentie: ABC123456`}
                         {isAdded && (
                           <span className="text-xs bg-green-500/20 text-green-400 px-2 py-0.5 rounded-full flex items-center gap-1">
                             <Check className="w-3 h-3" />
-                            Toegevoegd
+                            Added
                           </span>
                         )}
                       </div>
@@ -1939,7 +1955,7 @@ Referentie: ABC123456`}
                         {item.start_time && (
                           <span className="flex items-center gap-1">
                             <Clock className="w-3 h-3" />
-                            {new Date(item.start_time).toLocaleString('nl-NL', {
+                            {new Date(item.start_time).toLocaleString('en-US', {
                               weekday: 'short',
                               day: 'numeric',
                               month: 'short',
@@ -1947,7 +1963,7 @@ Referentie: ABC123456`}
                               minute: '2-digit',
                             })}
                             {item.end_time && (
-                              <> - {new Date(item.end_time).toLocaleString('nl-NL', {
+                              <> - {new Date(item.end_time).toLocaleString('en-US', {
                                 day: 'numeric',
                                 month: 'short',
                                 hour: '2-digit',
@@ -2007,10 +2023,10 @@ Referentie: ABC123456`}
                 }}
                 className="btn-secondary flex-1"
               >
-                Nieuwe import
+                New Import
               </button>
               <button onClick={onClose} className="btn-primary flex-1">
-                Klaar
+                Done
               </button>
             </div>
           </div>

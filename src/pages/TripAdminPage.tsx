@@ -247,47 +247,65 @@ function TicketsSection({
         <h3 className="font-semibold mb-4">Ticket Status by Member</h3>
         <div className="space-y-3">
           {members.map((member) => {
-            const ticket = tickets.find((t) => t.member_id === member.user_id);
+            const memberTickets = tickets.filter((t) => t.member_id === member.user_id);
             return (
               <div
                 key={member.id}
-                className="flex items-center justify-between p-4 bg-white/5 rounded-xl"
+                className="p-4 bg-white/5 rounded-xl"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center">
-                    {member.user?.name?.charAt(0) || '?'}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center">
+                      {member.user?.name?.charAt(0) || '?'}
+                    </div>
+                    <div>
+                      <p className="font-medium">{member.user?.name}</p>
+                      <p className="text-sm text-white/50">{member.user?.email}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium">{member.user?.name}</p>
-                    <p className="text-sm text-white/50">{member.user?.email}</p>
+                  <button
+                    onClick={() => {
+                      setSelectedMember(member);
+                      setShowUploadModal(true);
+                    }}
+                    className="btn-primary text-sm"
+                  >
+                    Add Ticket
+                  </button>
+                </div>
+                {memberTickets.length > 0 && (
+                  <div className="ml-13 space-y-2 mt-2 pl-13">
+                    {memberTickets.map((ticket) => (
+                      <div key={ticket.id} className="flex items-center justify-between p-2 bg-white/5 rounded-lg text-sm">
+                        <div className="flex items-center gap-2">
+                          <span className="text-green-400">✓</span>
+                          <span>
+                            {ticket.type === 'flight' && ticket.flight_number && (
+                              <span className="font-medium">{ticket.carrier} {ticket.flight_number}</span>
+                            )}
+                            {ticket.type === 'event' && (
+                              <span className="font-medium">{ticket.carrier || 'Event'}</span>
+                            )}
+                            {ticket.type !== 'flight' && ticket.type !== 'event' && (
+                              <span className="font-medium">{ticket.type}</span>
+                            )}
+                            {ticket.departure_time && (
+                              <span className="text-white/50 ml-2">
+                                {new Date(ticket.departure_time).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        <span className="text-white/40">
+                          {ticket.departure_location} → {ticket.arrival_location}
+                        </span>
+                      </div>
+                    ))}
                   </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  {ticket ? (
-                    <>
-                      <span className="text-sm text-green-400">Ticket uploaded</span>
-                      <button
-                        onClick={() => {
-                          setSelectedMember(member);
-                          setShowUploadModal(true);
-                        }}
-                        className="btn-secondary text-sm"
-                      >
-                        Edit
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setSelectedMember(member);
-                        setShowUploadModal(true);
-                      }}
-                      className="btn-primary text-sm"
-                    >
-                      Upload Ticket
-                    </button>
-                  )}
-                </div>
+                )}
+                {memberTickets.length === 0 && (
+                  <p className="text-sm text-white/40 ml-13 pl-13">No tickets uploaded yet</p>
+                )}
               </div>
             );
           })}
@@ -363,16 +381,39 @@ function TicketUploadModal({
       if (extracted.departure_location) setDepartureLocation(extracted.departure_location);
       if (extracted.arrival_location) setArrivalLocation(extracted.arrival_location);
       if (extracted.departure_time) {
-        // Convert ISO to datetime-local format
-        const dt = new Date(extracted.departure_time);
-        if (!isNaN(dt.getTime())) {
-          setDepartureTime(dt.toISOString().slice(0, 16));
+        // Convert ISO to datetime-local format, preserving local time
+        // If the string is already in ISO format like "2026-01-15T09:45:00", extract directly
+        const isoMatch = extracted.departure_time.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+        if (isoMatch) {
+          setDepartureTime(`${isoMatch[1]}T${isoMatch[2]}`);
+        } else {
+          // Fallback: parse as date and format in local timezone
+          const dt = new Date(extracted.departure_time);
+          if (!isNaN(dt.getTime())) {
+            const year = dt.getFullYear();
+            const month = String(dt.getMonth() + 1).padStart(2, '0');
+            const day = String(dt.getDate()).padStart(2, '0');
+            const hours = String(dt.getHours()).padStart(2, '0');
+            const minutes = String(dt.getMinutes()).padStart(2, '0');
+            setDepartureTime(`${year}-${month}-${day}T${hours}:${minutes}`);
+          }
         }
       }
       if (extracted.arrival_time) {
-        const at = new Date(extracted.arrival_time);
-        if (!isNaN(at.getTime())) {
-          setArrivalTime(at.toISOString().slice(0, 16));
+        // Same for arrival time
+        const isoMatch = extracted.arrival_time.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+        if (isoMatch) {
+          setArrivalTime(`${isoMatch[1]}T${isoMatch[2]}`);
+        } else {
+          const at = new Date(extracted.arrival_time);
+          if (!isNaN(at.getTime())) {
+            const year = at.getFullYear();
+            const month = String(at.getMonth() + 1).padStart(2, '0');
+            const day = String(at.getDate()).padStart(2, '0');
+            const hours = String(at.getHours()).padStart(2, '0');
+            const minutes = String(at.getMinutes()).padStart(2, '0');
+            setArrivalTime(`${year}-${month}-${day}T${hours}:${minutes}`);
+          }
         }
       }
       if (extracted.seat_number) setSeatNumber(extracted.seat_number);
