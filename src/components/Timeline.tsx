@@ -34,6 +34,7 @@ interface TimelineProps {
   tripId: string;
   trip?: Trip | null;
   memberCount?: number;
+  onRefresh?: () => void;
 }
 
 // Check if activity should be revealed (1 hour before start time)
@@ -82,7 +83,7 @@ const typeColors: Record<string, string> = {
   meeting: 'from-yellow-500 to-yellow-600',
 };
 
-export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount }: TimelineProps) {
+export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount, onRefresh }: TimelineProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<ScheduleItem | null>(null);
 
@@ -135,7 +136,7 @@ export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount 
             onClose={() => setShowSuggestionsModal(false)}
             onAdded={() => {
               setShowSuggestionsModal(false);
-              window.location.reload();
+              if (onRefresh) onRefresh();
             }}
           />
         )}
@@ -146,7 +147,7 @@ export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount 
             onClose={() => setShowAddModal(false)}
             onAdded={() => {
               setShowAddModal(false);
-              window.location.reload();
+              if (onRefresh) onRefresh();
             }}
           />
         )}
@@ -199,6 +200,7 @@ export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount 
                     isFirst={index === 0}
                     isLast={index === items.length - 1}
                     onSelect={() => setSelectedActivity(item)}
+                    onRefresh={onRefresh}
                   />
                 ))}
               </div>
@@ -213,7 +215,7 @@ export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount 
           onClose={() => setShowAddModal(false)}
           onAdded={() => {
             setShowAddModal(false);
-            window.location.reload();
+            if (onRefresh) onRefresh();
           }}
         />
       )}
@@ -226,7 +228,7 @@ export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount 
           onClose={() => setShowSuggestionsModal(false)}
           onAdded={() => {
             setShowSuggestionsModal(false);
-            window.location.reload();
+            if (onRefresh) onRefresh();
           }}
         />
       )}
@@ -236,6 +238,7 @@ export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount 
           activity={selectedActivity}
           isAdmin={isAdmin}
           onClose={() => setSelectedActivity(null)}
+          onRefresh={onRefresh}
         />
       )}
     </div>
@@ -246,12 +249,14 @@ function TimelineItem({
   item,
   isAdmin,
   onSelect,
+  onRefresh,
 }: {
   item: ScheduleItem;
   isAdmin: boolean;
   isFirst?: boolean;
   isLast?: boolean;
   onSelect: () => void;
+  onRefresh?: () => void;
 }) {
   const startTime = new Date(item.start_time);
   const endTime = item.end_time ? new Date(item.end_time) : null;
@@ -282,10 +287,10 @@ function TimelineItem({
         alert('Failed to delete: ' + error.message);
         return;
       }
-      // Use a slight delay to ensure the state is cleaned up before reload
-      setTimeout(() => {
-        window.location.reload();
-      }, 100);
+      // Refresh data instead of full page reload
+      if (onRefresh) {
+        onRefresh();
+      }
     } catch (err) {
       console.error('[Timeline] Unexpected delete error:', err);
       alert('An unexpected error occurred');
@@ -689,10 +694,12 @@ function ActivityDetailModal({
   activity,
   isAdmin,
   onClose,
+  onRefresh,
 }: {
   activity: ScheduleItem;
   isAdmin?: boolean;
   onClose: () => void;
+  onRefresh?: () => void;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -742,7 +749,8 @@ function ActivityDetailModal({
       return;
     }
 
-    window.location.reload();
+    onClose();
+    if (onRefresh) onRefresh();
   }
 
   function copyToClipboard(text: string) {

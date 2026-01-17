@@ -370,7 +370,7 @@ export default function TripLobbyPage() {
                 onRefresh={loadTripData}
               />
             ) : (
-              <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} trip={trip} memberCount={members.length} />
+              <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} trip={trip} memberCount={members.length} onRefresh={loadTripData} />
             )}
           </div>
         )}
