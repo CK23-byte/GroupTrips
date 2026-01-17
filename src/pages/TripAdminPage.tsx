@@ -232,14 +232,11 @@ function TicketsSection({
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TripMember | null>(null);
   const [viewingTicket, setViewingTicket] = useState<Ticket | null>(null);
-  const [deleting, setDeleting] = useState(false);
 
   async function handleDeleteTicket(ticketId: string) {
     if (!confirm('Are you sure you want to delete this ticket?')) return;
 
-    setDeleting(true);
     const { error } = await supabase.from('tickets').delete().eq('id', ticketId);
-    setDeleting(false);
 
     if (error) {
       alert('Failed to delete ticket: ' + error.message);

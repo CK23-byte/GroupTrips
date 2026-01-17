@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { QrCode, Plane, Train, Bus, MapPin, AlertCircle, Ticket as TicketIcon, ChevronLeft, Wallet } from 'lucide-react';
+import { QrCode, Plane, Train, Bus, MapPin, AlertCircle, Ticket as TicketIcon, ChevronLeft } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import type { Ticket, TicketRevealStatus, Trip } from '../types';
 
