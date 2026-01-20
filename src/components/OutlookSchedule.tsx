@@ -1713,6 +1713,12 @@ function AIImportModal({
   }
 
   async function handleAddItem(item: ParsedItem, index: number) {
+    // Guard against double-clicks
+    if (adding !== null) {
+      console.log('[AIImport] Already adding an item, ignoring click');
+      return;
+    }
+
     setAdding(index);
     setError('');
 
@@ -1765,48 +1771,57 @@ function AIImportModal({
     if (item.reservation_code) insertData.reservation_code = item.reservation_code;
     if (item.contact_info) insertData.contact_info = item.contact_info;
 
-    const { error: insertError } = await supabase.from('schedule_items').insert(insertData);
+    try {
+      console.log('[AIImport] Starting Supabase insert...');
+      const { error: insertError } = await supabase.from('schedule_items').insert(insertData);
 
-    if (insertError) {
-      console.error('[AIImport] Insert error:', insertError);
+      if (insertError) {
+        console.error('[AIImport] Insert error:', insertError);
 
-      // Try with minimal data if column error
-      if (insertError.message.includes('column')) {
-        console.log('[AIImport] Retrying with minimal data...');
-        const minimalData = {
-          trip_id: tripId,
-          title: item.title,
-          description: item.description || null,
-          location: item.location || null,
-          type: scheduleType,
-          start_time: startTimeISO,
-          end_time: endTimeISO,
-        };
-        const { error: retryError } = await supabase.from('schedule_items').insert(minimalData);
+        // Try with minimal data if column error
+        if (insertError.message.includes('column')) {
+          console.log('[AIImport] Retrying with minimal data...');
+          const minimalData = {
+            trip_id: tripId,
+            title: item.title,
+            description: item.description || null,
+            location: item.location || null,
+            type: scheduleType,
+            start_time: startTimeISO,
+            end_time: endTimeISO,
+          };
+          const { error: retryError } = await supabase.from('schedule_items').insert(minimalData);
 
-        if (retryError) {
-          console.error('[AIImport] Retry also failed:', retryError);
-          setError(`Failed to add: ${retryError.message}`);
+          if (retryError) {
+            console.error('[AIImport] Retry also failed:', retryError);
+            setError(`Failed to add: ${retryError.message}`);
+            setAdding(null);
+            return;
+          }
+          console.log('[AIImport] Retry succeeded');
+        } else {
+          setError(`Failed to add: ${insertError.message}`);
           setAdding(null);
           return;
         }
-        console.log('[AIImport] Retry succeeded');
       } else {
-        setError(`Failed to add: ${insertError.message}`);
-        setAdding(null);
-        return;
+        console.log('[AIImport] Insert succeeded');
       }
-    } else {
-      console.log('[AIImport] Insert succeeded');
-    }
 
-    setAdding(null);
-    setAddedItems(prev => new Set(prev).add(index));
+      console.log('[AIImport] Marking item as added, index:', index);
+      setAddedItems(prev => new Set(prev).add(index));
 
-    // Refresh the calendar immediately
-    if (onRefreshCalendar) {
-      console.log('[AIImport] Refreshing calendar...');
-      onRefreshCalendar();
+      // Refresh the calendar immediately
+      if (onRefreshCalendar) {
+        console.log('[AIImport] Refreshing calendar...');
+        onRefreshCalendar();
+      }
+    } catch (err) {
+      console.error('[AIImport] Unexpected error:', err);
+      setError(`Unexpected error: ${err instanceof Error ? err.message : 'Unknown'}`);
+    } finally {
+      console.log('[AIImport] Setting adding to null');
+      setAdding(null);
     }
   }
 

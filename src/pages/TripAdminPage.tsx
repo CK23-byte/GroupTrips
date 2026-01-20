@@ -1056,6 +1056,7 @@ function SettingsSection({
   const [returnTime, setReturnTime] = useState(
     trip.return_time ? new Date(trip.return_time).toISOString().slice(0, 16) : ''
   );
+  const [isSecret, setIsSecret] = useState(trip.is_secret ?? true);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
 
@@ -1073,6 +1074,7 @@ function SettingsSection({
         destination: destination || null,
         departure_time: departureTime ? new Date(departureTime).toISOString() : null,
         return_time: returnTime ? new Date(returnTime).toISOString() : null,
+        is_secret: isSecret,
       })
       .eq('id', trip.id);
 
@@ -1155,6 +1157,33 @@ function SettingsSection({
             <p className="text-xs text-white/50 mt-1">
               Used for weather forecast. Hidden from participants until revealed.
             </p>
+          </div>
+
+          {/* Secret Trip Toggle */}
+          <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="block text-sm font-medium text-white/70">
+                  Secret Trip
+                </label>
+                <p className="text-xs text-white/50 mt-1">
+                  Hide destination and trip details from members until reveal time
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSecret(!isSecret)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  isSecret ? 'bg-blue-500' : 'bg-white/20'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    isSecret ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
 
           {/* Date Range */}

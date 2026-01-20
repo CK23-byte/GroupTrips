@@ -19,6 +19,7 @@ export interface Trip {
   return_time?: string; // End date of the trip
   destination?: string; // Hidden until reveal time
   cover_image_url?: string;
+  is_secret?: boolean; // If true, hide destination/details from members until reveal
   status: 'planning' | 'active' | 'completed';
   created_at: string;
   updated_at: string;
