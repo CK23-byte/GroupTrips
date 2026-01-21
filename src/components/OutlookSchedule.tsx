@@ -1772,8 +1772,15 @@ function AIImportModal({
     if (item.contact_info) insertData.contact_info = item.contact_info;
 
     try {
-      console.log('[AIImport] Starting Supabase insert...');
-      const { error: insertError } = await supabase.from('schedule_items').insert(insertData);
+      console.log('[AIImport] Starting Supabase insert...', insertData);
+
+      // Add timeout to prevent infinite waiting
+      const insertPromise = supabase.from('schedule_items').insert(insertData);
+      const timeoutPromise = new Promise<{ error: { message: string } }>((_, reject) => {
+        setTimeout(() => reject(new Error('Insert timed out after 15 seconds')), 15000);
+      });
+
+      const { error: insertError } = await Promise.race([insertPromise, timeoutPromise]);
 
       if (insertError) {
         console.error('[AIImport] Insert error:', insertError);
@@ -1810,17 +1817,17 @@ function AIImportModal({
 
       console.log('[AIImport] Marking item as added, index:', index);
       setAddedItems(prev => new Set(prev).add(index));
+      setAdding(null); // Set null immediately before refresh
 
-      // Refresh the calendar immediately
+      // Refresh the calendar after state update
       if (onRefreshCalendar) {
         console.log('[AIImport] Refreshing calendar...');
-        onRefreshCalendar();
+        // Use setTimeout to ensure state update completes first
+        setTimeout(() => onRefreshCalendar(), 100);
       }
     } catch (err) {
       console.error('[AIImport] Unexpected error:', err);
       setError(`Unexpected error: ${err instanceof Error ? err.message : 'Unknown'}`);
-    } finally {
-      console.log('[AIImport] Setting adding to null');
       setAdding(null);
     }
   }

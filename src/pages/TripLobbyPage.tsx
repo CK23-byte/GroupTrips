@@ -706,6 +706,7 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
     icon: string;
     humidity: number;
     windSpeed: number;
+    isClimate?: boolean;
     forecast: { date: string; high: number; low: number; condition: string; icon: string }[];
   } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -736,39 +737,102 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
 
       const { latitude, longitude } = geoData.results[0];
 
-      // Calculate the date range (departure date + 7 days)
+      // Calculate days until departure
+      const now = new Date();
       const startDate = new Date(departureDate);
+      const daysUntilDeparture = Math.ceil((startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + 6);
 
-      // Fetch weather data
-      const weatherResponse = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=${startDate.toISOString().split('T')[0]}&end_date=${endDate.toISOString().split('T')[0]}`
-      );
-      const weatherData = await weatherResponse.json();
+      // If more than 10 days away, use historical data from last year for climate indication
+      const useHistorical = daysUntilDeparture > 10;
 
-      // Map weather codes to conditions and icons
-      const weatherCondition = getWeatherCondition(weatherData.current.weather_code);
+      let weatherData;
+      let isClimateData = false;
 
-      setWeather({
-        temperature: Math.round(weatherData.current.temperature_2m),
-        condition: weatherCondition.text,
-        icon: weatherCondition.icon,
-        humidity: weatherData.current.relative_humidity_2m,
-        windSpeed: Math.round(weatherData.current.wind_speed_10m),
-        forecast: weatherData.daily.time.map((date: string, i: number) => ({
-          date,
-          high: Math.round(weatherData.daily.temperature_2m_max[i]),
-          low: Math.round(weatherData.daily.temperature_2m_min[i]),
-          ...getWeatherCondition(weatherData.daily.weather_code[i]),
-        })),
-      });
+      if (useHistorical) {
+        // Use historical data from the same period last year
+        const historicalStartDate = new Date(startDate);
+        historicalStartDate.setFullYear(historicalStartDate.getFullYear() - 1);
+        const historicalEndDate = new Date(endDate);
+        historicalEndDate.setFullYear(historicalEndDate.getFullYear() - 1);
+
+        console.log('[Weather] Trip is >10 days away, fetching historical climate data');
+
+        const weatherResponse = await fetch(
+          `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&start_date=${historicalStartDate.toISOString().split('T')[0]}&end_date=${historicalEndDate.toISOString().split('T')[0]}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`
+        );
+        weatherData = await weatherResponse.json();
+        isClimateData = true;
+
+        if (weatherData.error) {
+          console.error('[Weather] Historical API error:', weatherData.reason);
+          setError('Climate data unavailable');
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Fetch regular forecast data
+        const weatherResponse = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=${startDate.toISOString().split('T')[0]}&end_date=${endDate.toISOString().split('T')[0]}`
+        );
+        weatherData = await weatherResponse.json();
+      }
+
+      if (isClimateData) {
+        // For climate data, calculate averages
+        const avgHigh = Math.round(weatherData.daily.temperature_2m_max.reduce((a: number, b: number) => a + b, 0) / weatherData.daily.temperature_2m_max.length);
+        const mostCommonWeatherCode = getMostCommonValue(weatherData.daily.weather_code);
+        const weatherCondition = getWeatherCondition(mostCommonWeatherCode);
+
+        setWeather({
+          temperature: avgHigh,
+          condition: `${weatherCondition.text} (typical)`,
+          icon: weatherCondition.icon,
+          humidity: 0, // Not available in historical
+          windSpeed: 0, // Not available in historical
+          isClimate: true,
+          forecast: weatherData.daily.time.map((date: string, i: number) => ({
+            date: new Date(new Date(date).setFullYear(new Date(date).getFullYear() + 1)).toISOString().split('T')[0],
+            high: Math.round(weatherData.daily.temperature_2m_max[i]),
+            low: Math.round(weatherData.daily.temperature_2m_min[i]),
+            ...getWeatherCondition(weatherData.daily.weather_code[i]),
+          })),
+        });
+      } else {
+        // Regular forecast data
+        const weatherCondition = getWeatherCondition(weatherData.current.weather_code);
+
+        setWeather({
+          temperature: Math.round(weatherData.current.temperature_2m),
+          condition: weatherCondition.text,
+          icon: weatherCondition.icon,
+          humidity: weatherData.current.relative_humidity_2m,
+          windSpeed: Math.round(weatherData.current.wind_speed_10m),
+          isClimate: false,
+          forecast: weatherData.daily.time.map((date: string, i: number) => ({
+            date,
+            high: Math.round(weatherData.daily.temperature_2m_max[i]),
+            low: Math.round(weatherData.daily.temperature_2m_min[i]),
+            ...getWeatherCondition(weatherData.daily.weather_code[i]),
+          })),
+        });
+      }
     } catch (err) {
       console.error('Weather fetch error:', err);
       setError('Could not load weather');
     } finally {
       setLoading(false);
     }
+  }
+
+  // Helper to find most common value in array
+  function getMostCommonValue(arr: number[]): number {
+    const counts = arr.reduce((acc: Record<number, number>, val) => {
+      acc[val] = (acc[val] || 0) + 1;
+      return acc;
+    }, {});
+    return Number(Object.keys(counts).reduce((a, b) => counts[Number(a)] > counts[Number(b)] ? a : b));
   }
 
   // Map WMO weather codes to conditions
@@ -970,24 +1034,39 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
     <div className="card p-6">
       <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
         <span className="text-2xl">{weather.icon}</span>
-        Weather in {destination}
+        {weather.isClimate ? 'Climate' : 'Weather'} in {destination}
       </h2>
 
-      {/* Current weather */}
+      {weather.isClimate && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-4">
+          <p className="text-xs text-blue-300">
+            📅 Based on historical data from last year. Actual weather may vary.
+          </p>
+        </div>
+      )}
+
+      {/* Current/Average weather */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <p className="text-4xl font-bold">{weather.temperature}°C</p>
           <p className="text-white/60">{weather.condition}</p>
+          {weather.isClimate && (
+            <p className="text-xs text-white/40">Average high temperature</p>
+          )}
         </div>
-        <div className="text-right text-sm text-white/50">
-          <p>💧 {weather.humidity}%</p>
-          <p>💨 {weather.windSpeed} km/h</p>
-        </div>
+        {!weather.isClimate && (
+          <div className="text-right text-sm text-white/50">
+            <p>💧 {weather.humidity}%</p>
+            <p>💨 {weather.windSpeed} km/h</p>
+          </div>
+        )}
       </div>
 
       {/* Forecast */}
       <div className="border-t border-white/10 pt-4">
-        <p className="text-xs text-white/40 mb-3">Trip forecast</p>
+        <p className="text-xs text-white/40 mb-3">
+          {weather.isClimate ? 'Typical weather for this period' : 'Trip forecast'}
+        </p>
         <div className="grid grid-cols-4 gap-2">
           {weather.forecast.slice(0, 4).map((day) => (
             <div key={day.date} className="text-center">
