@@ -182,15 +182,32 @@ export default function OutlookSchedule({
   }, [items]);
 
   // Group regular items by date (excluding accommodations)
+  // Include items that span multiple days on each day they touch
   const itemsByDate = useMemo(() => {
     const grouped: Record<string, ScheduleItem[]> = {};
 
     displayDates.forEach(date => {
       const dateStr = date.toISOString().split('T')[0];
+      const dayStart = new Date(date);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(date);
+      dayEnd.setHours(23, 59, 59, 999);
+
       grouped[dateStr] = regularItems.filter(item => {
-        const itemDate = new Date(item.start_time).toISOString().split('T')[0];
-        return itemDate === dateStr;
-      }).sort((a, b) => new Date(a.start_time).getTime() - new Date(b.start_time).getTime());
+        const itemStart = new Date(item.start_time);
+        const itemEnd = item.end_time ? new Date(item.end_time) : itemStart;
+
+        // Include item if it overlaps with this day at all
+        // Item overlaps if: itemStart <= dayEnd AND itemEnd >= dayStart
+        return itemStart <= dayEnd && itemEnd >= dayStart;
+      }).sort((a, b) => {
+        // Sort by effective start time on this day
+        const aStart = new Date(a.start_time);
+        const bStart = new Date(b.start_time);
+        const aEffective = aStart < dayStart ? 0 : aStart.getHours() * 60 + aStart.getMinutes();
+        const bEffective = bStart < dayStart ? 0 : bStart.getHours() * 60 + bStart.getMinutes();
+        return aEffective - bEffective;
+      });
     });
 
     return grouped;
@@ -226,25 +243,58 @@ export default function OutlookSchedule({
     return { dayName, dateNum, month, isToday };
   };
 
-  // Calculate item position and height
-  const getItemStyle = (item: ScheduleItem) => {
-    const startTime = new Date(item.start_time);
-    const startHour = startTime.getHours() + startTime.getMinutes() / 60;
+  // Calculate item position and height for a given day
+  // For multi-day events, pass the date being rendered to clip the event appropriately
+  const getItemStyle = (item: ScheduleItem, renderDate?: Date) => {
+    const itemStartTime = new Date(item.start_time);
+    const itemEndTime = item.end_time ? new Date(item.end_time) : null;
 
-    // Calculate duration
-    let durationHours = 1; // Default 1 hour
-    if (item.end_time) {
-      const endTime = new Date(item.end_time);
-      durationHours = (endTime.getTime() - startTime.getTime()) / (1000 * 60 * 60);
+    // Determine the actual start and end times for rendering on this specific day
+    let displayStartHour: number;
+    let displayEndHour: number;
+
+    if (renderDate) {
+      const dayStart = new Date(renderDate);
+      dayStart.setHours(0, 0, 0, 0);
+      const dayEnd = new Date(renderDate);
+      dayEnd.setHours(23, 59, 59, 999);
+
+      // If item starts before this day, start at midnight
+      if (itemStartTime < dayStart) {
+        displayStartHour = 0;
+      } else {
+        displayStartHour = itemStartTime.getHours() + itemStartTime.getMinutes() / 60;
+      }
+
+      // If item ends after this day (or no end time), end at midnight (24:00)
+      if (!itemEndTime || itemEndTime > dayEnd) {
+        displayEndHour = 24;
+      } else {
+        displayEndHour = itemEndTime.getHours() + itemEndTime.getMinutes() / 60;
+      }
+    } else {
+      // No render date provided, use original times
+      displayStartHour = itemStartTime.getHours() + itemStartTime.getMinutes() / 60;
+
+      if (itemEndTime) {
+        const durationHours = (itemEndTime.getTime() - itemStartTime.getTime()) / (1000 * 60 * 60);
+        displayEndHour = displayStartHour + durationHours;
+      } else {
+        displayEndHour = displayStartHour + 1; // Default 1 hour
+      }
     }
 
-    // Position from top (relative to 0 AM start, 24 hours total)
-    const topPercent = (startHour / 24) * 100;
-    const heightPercent = (durationHours / 24) * 100;
+    // Calculate duration for this day's portion
+    const durationHours = Math.max(displayEndHour - displayStartHour, 0.5); // Minimum 30 min display
+
+    // Each hour slot is 48px, so for proper alignment use pixel-based positioning
+    // This ensures exact alignment with the hour grid labels on the left
+    const topPx = displayStartHour * 48;
+    const heightPx = durationHours * 48;
 
     return {
-      top: `${Math.max(0, topPercent)}%`,
-      height: `${Math.min(heightPercent, 100 - topPercent)}%`,
+      top: `${topPx}px`,
+      height: `${Math.max(heightPx, 48)}px`, // Minimum 48px (1 hour) for visibility
       minHeight: '48px',
     };
   };
@@ -484,15 +534,29 @@ export default function OutlookSchedule({
 
                 {/* Activity items - positioned above click area */}
                 {dayItems.map(item => {
-                  const style = getItemStyle(item);
+                  const style = getItemStyle(item, date);
                   const colors = typeColors[item.type] || typeColors.activity;
+
+                  // Check if this is a multi-day event spanning from/to another day
+                  const itemStart = new Date(item.start_time);
+                  const itemEnd = item.end_time ? new Date(item.end_time) : null;
+                  const dayStart = new Date(date);
+                  dayStart.setHours(0, 0, 0, 0);
+                  const dayEnd = new Date(date);
+                  dayEnd.setHours(23, 59, 59, 999);
+
+                  const startsBeforeThisDay = itemStart < dayStart;
+                  const endsAfterThisDay = itemEnd && itemEnd > dayEnd;
+                  const isMultiDayPortion = startsBeforeThisDay || endsAfterThisDay;
 
                   return (
                     <div
-                      key={item.id}
+                      key={`${item.id}-${dateStr}`}
                       className={`absolute left-1 right-1 rounded-lg p-2 overflow-hidden cursor-pointer z-10
                         ${colors.bg} border-l-4 ${colors.border}
-                        hover:brightness-110 transition-all group`}
+                        hover:brightness-110 transition-all group
+                        ${startsBeforeThisDay ? 'rounded-t-none border-t-2 border-t-white/20' : ''}
+                        ${endsAfterThisDay ? 'rounded-b-none border-b-2 border-b-white/20' : ''}`}
                       style={style}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -502,22 +566,36 @@ export default function OutlookSchedule({
                       <div className="flex items-start justify-between gap-1">
                         <div className="min-w-0 flex-1">
                           <p className={`font-medium text-sm truncate ${colors.text}`}>
-                            {item.title}
+                            {isMultiDayPortion && '↕ '}{item.title}
                           </p>
                           <p className="text-xs text-white/50 flex items-center gap-1">
                             <Clock className="w-3 h-3" />
-                            {new Date(item.start_time).toLocaleTimeString('en-US', {
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
+                            {startsBeforeThisDay ? (
+                              '00:00'
+                            ) : (
+                              new Date(item.start_time).toLocaleTimeString('en-US', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })
+                            )}
                             {item.end_time && (
                               <>
                                 {' - '}
-                                {new Date(item.end_time).toLocaleTimeString('en-US', {
-                                  hour: '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {endsAfterThisDay ? (
+                                  '24:00'
+                                ) : (
+                                  new Date(item.end_time).toLocaleTimeString('en-US', {
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                )}
                               </>
+                            )}
+                            {isMultiDayPortion && (
+                              <span className="ml-1 text-white/30">
+                                ({itemStart.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}
+                                {itemEnd && ` - ${itemEnd.toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}`})
+                              </span>
                             )}
                           </p>
                           {item.location && (

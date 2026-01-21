@@ -183,7 +183,7 @@ export default function TripAdminPage() {
               <MembersSection members={members} tripId={tripId!} currentUserId={user?.id || ''} onRefresh={loadData} />
             )}
             {activeSection === 'settings' && (
-              <SettingsSection trip={trip} onUpdate={loadData} />
+              <SettingsSection key={trip.id} trip={trip} onUpdate={loadData} />
             )}
           </div>
         </div>
@@ -1038,6 +1038,25 @@ function MembersSection({
   );
 }
 
+// Helper to safely format date for datetime-local input
+function formatDateForInput(dateString: string | null | undefined): string {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+    // Format as YYYY-MM-DDTHH:MM for datetime-local input
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  } catch {
+    console.error('[SettingsSection] Error formatting date:', dateString);
+    return '';
+  }
+}
+
 function SettingsSection({
   trip,
   onUpdate,
@@ -1046,19 +1065,26 @@ function SettingsSection({
   onUpdate: () => void;
 }) {
   const navigate = useNavigate();
-  const [name, setName] = useState(trip.name);
+  const [name, setName] = useState(trip.name || '');
   const [groupName, setGroupName] = useState(trip.group_name || '');
   const [description, setDescription] = useState(trip.description || '');
   const [destination, setDestination] = useState(trip.destination || '');
-  const [departureTime, setDepartureTime] = useState(
-    trip.departure_time ? new Date(trip.departure_time).toISOString().slice(0, 16) : ''
-  );
-  const [returnTime, setReturnTime] = useState(
-    trip.return_time ? new Date(trip.return_time).toISOString().slice(0, 16) : ''
-  );
+  const [departureTime, setDepartureTime] = useState(() => formatDateForInput(trip.departure_time));
+  const [returnTime, setReturnTime] = useState(() => formatDateForInput(trip.return_time));
   const [isSecret, setIsSecret] = useState(trip.is_secret ?? true);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Sync state with prop changes when trip is updated (e.g., after save)
+  useEffect(() => {
+    setName(trip.name || '');
+    setGroupName(trip.group_name || '');
+    setDescription(trip.description || '');
+    setDestination(trip.destination || '');
+    setDepartureTime(formatDateForInput(trip.departure_time));
+    setReturnTime(formatDateForInput(trip.return_time));
+    setIsSecret(trip.is_secret ?? true);
+  }, [trip.id]); // Only resync when trip.id changes to avoid overwriting user edits
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
