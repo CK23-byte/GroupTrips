@@ -1852,45 +1852,80 @@ function AIImportModal({
     try {
       console.log('[AIImport] Starting Supabase insert...', insertData);
 
-      // Add timeout to prevent infinite waiting
-      const insertPromise = supabase.from('schedule_items').insert(insertData);
-      const timeoutPromise = new Promise<{ error: { message: string } }>((_, reject) => {
-        setTimeout(() => reject(new Error('Insert timed out after 15 seconds')), 15000);
-      });
+      // Retry logic with exponential backoff
+      const maxRetries = 3;
+      const baseDelay = 2000; // 2 seconds
 
-      const { error: insertError } = await Promise.race([insertPromise, timeoutPromise]);
+      async function attemptInsert(data: Record<string, unknown>, attempt: number): Promise<{ error: { message: string } | null }> {
+        // Add timeout to prevent infinite waiting (20 seconds for first attempt, increase for retries)
+        const timeoutMs = 20000 + (attempt * 5000);
+        const insertPromise = supabase.from('schedule_items').insert(data);
+        const timeoutPromise = new Promise<{ error: { message: string } }>((_, reject) => {
+          setTimeout(() => reject(new Error(`Insert timed out after ${timeoutMs / 1000} seconds`)), timeoutMs);
+        });
 
-      if (insertError) {
-        console.error('[AIImport] Insert error:', insertError);
+        return Promise.race([insertPromise, timeoutPromise]);
+      }
 
-        // Try with minimal data if column error
-        if (insertError.message.includes('column')) {
-          console.log('[AIImport] Retrying with minimal data...');
-          const minimalData = {
-            trip_id: tripId,
-            title: item.title,
-            description: item.description || null,
-            location: item.location || null,
-            type: scheduleType,
-            start_time: startTimeISO,
-            end_time: endTimeISO,
-          };
-          const { error: retryError } = await supabase.from('schedule_items').insert(minimalData);
+      let lastError: { message: string } | null = null;
 
-          if (retryError) {
-            console.error('[AIImport] Retry also failed:', retryError);
-            setError(`Failed to add: ${retryError.message}`);
-            setAdding(null);
-            return;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            const delay = baseDelay * Math.pow(2, attempt - 1);
+            console.log(`[AIImport] Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
           }
-          console.log('[AIImport] Retry succeeded');
-        } else {
-          setError(`Failed to add: ${insertError.message}`);
-          setAdding(null);
-          return;
+
+          const { error: insertError } = await attemptInsert(insertData, attempt);
+
+          if (!insertError) {
+            console.log('[AIImport] Insert succeeded');
+            lastError = null;
+            break;
+          }
+
+          // If it's a column error, try with minimal data immediately
+          if (insertError.message.includes('column')) {
+            console.log('[AIImport] Retrying with minimal data...');
+            const minimalData = {
+              trip_id: tripId,
+              title: item.title,
+              description: item.description || null,
+              location: item.location || null,
+              type: scheduleType,
+              start_time: startTimeISO,
+              end_time: endTimeISO,
+            };
+            const { error: retryError } = await attemptInsert(minimalData, attempt);
+
+            if (!retryError) {
+              console.log('[AIImport] Retry with minimal data succeeded');
+              lastError = null;
+              break;
+            }
+            lastError = retryError;
+          } else if (insertError.message.includes('timed out') || insertError.message.includes('network') || insertError.message.includes('fetch')) {
+            // Network/timeout error - retry
+            console.log('[AIImport] Network/timeout error, will retry:', insertError.message);
+            lastError = insertError;
+          } else {
+            // Other error - don't retry
+            lastError = insertError;
+            break;
+          }
+        } catch (err) {
+          // Timeout or network error - retry
+          console.log('[AIImport] Attempt failed with error:', err);
+          lastError = { message: err instanceof Error ? err.message : 'Unknown error' };
         }
-      } else {
-        console.log('[AIImport] Insert succeeded');
+      }
+
+      if (lastError) {
+        console.error('[AIImport] All insert attempts failed:', lastError);
+        setError(`Failed to add: ${lastError.message}. Please check your connection and try again.`);
+        setAdding(null);
+        return;
       }
 
       console.log('[AIImport] Marking item as added, index:', index);
