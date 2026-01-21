@@ -722,6 +722,15 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
     setError('');
 
     try {
+      // Validate departure date first
+      const startDate = new Date(departureDate);
+      if (isNaN(startDate.getTime())) {
+        console.error('[Weather] Invalid departure date:', departureDate);
+        setError('Invalid trip date');
+        setLoading(false);
+        return;
+      }
+
       // First, geocode the location to get coordinates
       const geoResponse = await fetch(
         `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`
@@ -738,12 +747,14 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
 
       // Calculate days until departure
       const now = new Date();
-      const startDate = new Date(departureDate);
       const daysUntilDeparture = Math.ceil((startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + 6);
 
+      console.log('[Weather] Departure date:', startDate.toISOString(), 'Days until:', daysUntilDeparture);
+
       // If more than 10 days away, use historical data from last year for climate indication
+      // Note: Open-Meteo forecast API only supports up to 16 days in advance
       const useHistorical = daysUntilDeparture > 10;
 
       let weatherData;
@@ -772,10 +783,35 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
         }
       } else {
         // Fetch regular forecast data
+        console.log('[Weather] Fetching forecast data for next', daysUntilDeparture, 'days');
         const weatherResponse = await fetch(
           `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=${startDate.toISOString().split('T')[0]}&end_date=${endDate.toISOString().split('T')[0]}`
         );
         weatherData = await weatherResponse.json();
+
+        // If forecast API returns error (e.g., dates too far in future), fall back to historical
+        if (weatherData.error || !weatherResponse.ok) {
+          console.log('[Weather] Forecast API error, falling back to historical data:', weatherData.reason || weatherData.error);
+
+          // Try historical data instead
+          const historicalStartDate = new Date(startDate);
+          historicalStartDate.setFullYear(historicalStartDate.getFullYear() - 1);
+          const historicalEndDate = new Date(endDate);
+          historicalEndDate.setFullYear(historicalEndDate.getFullYear() - 1);
+
+          const historicalResponse = await fetch(
+            `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&start_date=${historicalStartDate.toISOString().split('T')[0]}&end_date=${historicalEndDate.toISOString().split('T')[0]}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`
+          );
+          weatherData = await historicalResponse.json();
+          isClimateData = true;
+
+          if (weatherData.error) {
+            console.error('[Weather] Historical API also failed:', weatherData.reason);
+            setError('Weather data unavailable');
+            setLoading(false);
+            return;
+          }
+        }
       }
 
       if (isClimateData) {
