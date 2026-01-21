@@ -15,6 +15,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: 'Trip name and user ID are required' });
     }
 
+    // Determine the app URL - prefer provided URLs, then env var, then Vercel URL
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : 'https://grouptrips.app';
+
+    const finalSuccessUrl = successUrl || `${appUrl}/dashboard?payment=success&session_id={CHECKOUT_SESSION_ID}`;
+    const finalCancelUrl = cancelUrl || `${appUrl}/dashboard?payment=cancelled`;
+
+    console.log('[create-checkout] URLs:', { successUrl: finalSuccessUrl, cancelUrl: finalCancelUrl });
+
     // Create Stripe checkout session with all trip data in metadata
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ['card', 'ideal'],
@@ -33,8 +43,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         },
       ],
       mode: 'payment',
-      success_url: successUrl || `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?payment=success&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: cancelUrl || `${process.env.NEXT_PUBLIC_APP_URL}/dashboard?payment=cancelled`,
+      success_url: finalSuccessUrl,
+      cancel_url: finalCancelUrl,
       metadata: {
         tripName,
         userId,

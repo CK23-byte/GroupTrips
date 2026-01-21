@@ -33,7 +33,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
             role: 'system',
             content: `You are a ticket data extractor. Extract information from tickets (transport OR events like festivals, concerts, sports).
 
-IMPORTANT: The current year is ${currentYear}. When dates on tickets don't include a year, assume they are for ${currentYear} or ${currentYear + 1} (whichever makes more sense based on the current date). Never use years before ${currentYear}.
+IMPORTANT: Extract the EXACT dates shown on the ticket, including the year. If the year is clearly visible (e.g., "2025", "2024"), use that exact year even if it's in the past - this is historical data and must be preserved. Only if NO year is visible on the ticket, assume ${currentYear} or ${currentYear + 1} based on context.
 
 For TRANSPORT tickets (flights, trains, buses):
 - passenger_name: Full name of the passenger

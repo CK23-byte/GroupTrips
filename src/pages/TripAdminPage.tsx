@@ -13,6 +13,8 @@ import {
   Sparkles,
   Crown,
   Loader2,
+  Eye,
+  X,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, uploadFile } from '../lib/supabase';
@@ -181,7 +183,7 @@ export default function TripAdminPage() {
               <MembersSection members={members} tripId={tripId!} currentUserId={user?.id || ''} onRefresh={loadData} />
             )}
             {activeSection === 'settings' && (
-              <SettingsSection trip={trip} onUpdate={loadData} />
+              <SettingsSection key={trip.id} trip={trip} onUpdate={loadData} />
             )}
           </div>
         </div>
@@ -229,6 +231,20 @@ function TicketsSection({
 }) {
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [selectedMember, setSelectedMember] = useState<TripMember | null>(null);
+  const [viewingTicket, setViewingTicket] = useState<Ticket | null>(null);
+
+  async function handleDeleteTicket(ticketId: string) {
+    if (!confirm('Are you sure you want to delete this ticket?')) return;
+
+    const { error } = await supabase.from('tickets').delete().eq('id', ticketId);
+
+    if (error) {
+      alert('Failed to delete ticket: ' + error.message);
+      return;
+    }
+
+    onRefresh();
+  }
 
   return (
     <div>
@@ -247,47 +263,79 @@ function TicketsSection({
         <h3 className="font-semibold mb-4">Ticket Status by Member</h3>
         <div className="space-y-3">
           {members.map((member) => {
-            const ticket = tickets.find((t) => t.member_id === member.user_id);
+            const memberTickets = tickets.filter((t) => t.member_id === member.user_id);
             return (
               <div
                 key={member.id}
-                className="flex items-center justify-between p-4 bg-white/5 rounded-xl"
+                className="p-4 bg-white/5 rounded-xl"
               >
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center">
-                    {member.user?.name?.charAt(0) || '?'}
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center">
+                      {member.user?.name?.charAt(0) || '?'}
+                    </div>
+                    <div>
+                      <p className="font-medium">{member.user?.name}</p>
+                      <p className="text-sm text-white/50">{member.user?.email}</p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium">{member.user?.name}</p>
-                    <p className="text-sm text-white/50">{member.user?.email}</p>
+                  <button
+                    onClick={() => {
+                      setSelectedMember(member);
+                      setShowUploadModal(true);
+                    }}
+                    className="btn-primary text-sm"
+                  >
+                    Add Ticket
+                  </button>
+                </div>
+                {memberTickets.length > 0 && (
+                  <div className="space-y-2 mt-3">
+                    {memberTickets.map((ticket) => (
+                      <div key={ticket.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg text-sm">
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <span className="text-green-400 flex-shrink-0">✓</span>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium truncate">
+                              {ticket.type === 'flight' && ticket.flight_number
+                                ? `${ticket.carrier || ''} ${ticket.flight_number}`.trim()
+                                : ticket.type === 'event'
+                                ? ticket.carrier || 'Event'
+                                : ticket.type}
+                            </p>
+                            <p className="text-white/40 text-xs truncate">
+                              {ticket.departure_location} → {ticket.arrival_location}
+                              {ticket.departure_time && (
+                                <span className="ml-2">
+                                  {new Date(ticket.departure_time).toLocaleDateString('en-US', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <button
+                            onClick={() => setViewingTicket(ticket)}
+                            className={`p-1.5 hover:bg-white/10 rounded transition-colors ${ticket.full_ticket_url ? 'text-blue-400' : 'text-white/30'}`}
+                            title={ticket.full_ticket_url ? "View ticket" : "View details (no image uploaded)"}
+                          >
+                            <Eye className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTicket(ticket.id)}
+                            className="p-1.5 hover:bg-red-500/20 rounded text-red-400 transition-colors"
+                            title="Delete ticket"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  {ticket ? (
-                    <>
-                      <span className="text-sm text-green-400">Ticket uploaded</span>
-                      <button
-                        onClick={() => {
-                          setSelectedMember(member);
-                          setShowUploadModal(true);
-                        }}
-                        className="btn-secondary text-sm"
-                      >
-                        Edit
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      onClick={() => {
-                        setSelectedMember(member);
-                        setShowUploadModal(true);
-                      }}
-                      className="btn-primary text-sm"
-                    >
-                      Upload Ticket
-                    </button>
-                  )}
-                </div>
+                )}
+                {memberTickets.length === 0 && (
+                  <p className="text-sm text-white/40 ml-13 pl-13">No tickets uploaded yet</p>
+                )}
               </div>
             );
           })}
@@ -309,6 +357,81 @@ function TicketsSection({
             onRefresh();
           }}
         />
+      )}
+
+      {/* View Ticket Modal */}
+      {viewingTicket && (
+        <div
+          className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4"
+          onClick={() => setViewingTicket(null)}
+        >
+          <div
+            className="relative max-w-2xl w-full max-h-[90vh] overflow-auto bg-slate-800 rounded-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              onClick={() => setViewingTicket(null)}
+              className="absolute top-4 right-4 p-2 bg-black/50 hover:bg-black/70 rounded-full transition-colors z-10"
+            >
+              <X className="w-5 h-5" />
+            </button>
+            <div className="p-4">
+              <h3 className="font-semibold mb-2">
+                {viewingTicket.type === 'flight' && viewingTicket.flight_number
+                  ? `${viewingTicket.carrier || ''} ${viewingTicket.flight_number}`.trim()
+                  : viewingTicket.carrier || viewingTicket.type}
+              </h3>
+              <p className="text-sm text-white/50 mb-4">
+                {viewingTicket.departure_location} → {viewingTicket.arrival_location}
+              </p>
+              {/* Ticket details */}
+              <div className="grid grid-cols-2 gap-3 text-sm mb-4">
+                {viewingTicket.departure_time && (
+                  <div>
+                    <p className="text-white/40">Departure</p>
+                    <p>{new Date(viewingTicket.departure_time).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                  </div>
+                )}
+                {viewingTicket.arrival_time && (
+                  <div>
+                    <p className="text-white/40">Arrival</p>
+                    <p>{new Date(viewingTicket.arrival_time).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                  </div>
+                )}
+                {viewingTicket.seat_number && (
+                  <div>
+                    <p className="text-white/40">Seat</p>
+                    <p>{viewingTicket.seat_number}</p>
+                  </div>
+                )}
+                {viewingTicket.gate && (
+                  <div>
+                    <p className="text-white/40">Gate</p>
+                    <p>{viewingTicket.gate}</p>
+                  </div>
+                )}
+                {viewingTicket.booking_reference && (
+                  <div>
+                    <p className="text-white/40">Reference</p>
+                    <p className="font-mono">{viewingTicket.booking_reference}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+            {viewingTicket.full_ticket_url ? (
+              <img
+                src={viewingTicket.full_ticket_url}
+                alt="Ticket"
+                className="w-full"
+              />
+            ) : (
+              <div className="p-6 text-center bg-white/5 m-4 rounded-xl">
+                <p className="text-white/40">No ticket image uploaded</p>
+                <p className="text-xs text-white/30 mt-1">Upload a ticket image to display it here</p>
+              </div>
+            )}
+          </div>
+        </div>
       )}
     </div>
   );
@@ -363,16 +486,39 @@ function TicketUploadModal({
       if (extracted.departure_location) setDepartureLocation(extracted.departure_location);
       if (extracted.arrival_location) setArrivalLocation(extracted.arrival_location);
       if (extracted.departure_time) {
-        // Convert ISO to datetime-local format
-        const dt = new Date(extracted.departure_time);
-        if (!isNaN(dt.getTime())) {
-          setDepartureTime(dt.toISOString().slice(0, 16));
+        // Convert ISO to datetime-local format, preserving local time
+        // If the string is already in ISO format like "2026-01-15T09:45:00", extract directly
+        const isoMatch = extracted.departure_time.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+        if (isoMatch) {
+          setDepartureTime(`${isoMatch[1]}T${isoMatch[2]}`);
+        } else {
+          // Fallback: parse as date and format in local timezone
+          const dt = new Date(extracted.departure_time);
+          if (!isNaN(dt.getTime())) {
+            const year = dt.getFullYear();
+            const month = String(dt.getMonth() + 1).padStart(2, '0');
+            const day = String(dt.getDate()).padStart(2, '0');
+            const hours = String(dt.getHours()).padStart(2, '0');
+            const minutes = String(dt.getMinutes()).padStart(2, '0');
+            setDepartureTime(`${year}-${month}-${day}T${hours}:${minutes}`);
+          }
         }
       }
       if (extracted.arrival_time) {
-        const at = new Date(extracted.arrival_time);
-        if (!isNaN(at.getTime())) {
-          setArrivalTime(at.toISOString().slice(0, 16));
+        // Same for arrival time
+        const isoMatch = extracted.arrival_time.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/);
+        if (isoMatch) {
+          setArrivalTime(`${isoMatch[1]}T${isoMatch[2]}`);
+        } else {
+          const at = new Date(extracted.arrival_time);
+          if (!isNaN(at.getTime())) {
+            const year = at.getFullYear();
+            const month = String(at.getMonth() + 1).padStart(2, '0');
+            const day = String(at.getDate()).padStart(2, '0');
+            const hours = String(at.getHours()).padStart(2, '0');
+            const minutes = String(at.getMinutes()).padStart(2, '0');
+            setArrivalTime(`${year}-${month}-${day}T${hours}:${minutes}`);
+          }
         }
       }
       if (extracted.seat_number) setSeatNumber(extracted.seat_number);
@@ -411,10 +557,14 @@ function TicketUploadModal({
     setLoading(true);
 
     try {
-      let fullTicketUrl = null;
+      let fullTicketUrl: string | null = null;
 
       if (fullTicketFile) {
-        console.log('[TicketUpload] Uploading file to storage...');
+        console.log('[TicketUpload] Uploading file to storage...', {
+          fileName: fullTicketFile.name,
+          fileSize: fullTicketFile.size,
+          fileType: fullTicketFile.type
+        });
 
         // Add timeout to prevent infinite waiting
         const uploadPromise = uploadFile(
@@ -423,17 +573,37 @@ function TicketUploadModal({
           fullTicketFile
         );
 
-        const timeoutPromise = new Promise<null>((_, reject) => {
+        const timeoutPromise = new Promise<string | null>((_, reject) => {
           setTimeout(() => reject(new Error('Upload timed out after 30 seconds')), 30000);
         });
 
         try {
           fullTicketUrl = await Promise.race([uploadPromise, timeoutPromise]);
-          console.log('[TicketUpload] File uploaded:', fullTicketUrl);
+          console.log('[TicketUpload] File uploaded successfully:', fullTicketUrl);
+
+          if (!fullTicketUrl) {
+            console.error('[TicketUpload] Upload returned null URL');
+            const continueWithout = confirm(
+              'File upload failed (no URL returned). This may be due to storage permissions.\n\n' +
+              'Do you want to save the ticket WITHOUT the image?\n' +
+              'You can re-upload the ticket later.'
+            );
+            if (!continueWithout) {
+              setLoading(false);
+              return;
+            }
+          }
         } catch (uploadError) {
           console.error('[TicketUpload] Upload error:', uploadError);
-          // Continue without file URL - user can still save ticket data
-          alert('File upload failed, but you can still save ticket details. You can re-upload the file later.');
+          const continueWithout = confirm(
+            `File upload failed: ${uploadError instanceof Error ? uploadError.message : 'Unknown error'}\n\n` +
+            'Do you want to save the ticket WITHOUT the image?\n' +
+            'You can re-upload the ticket later.'
+          );
+          if (!continueWithout) {
+            setLoading(false);
+            return;
+          }
         }
       }
 
@@ -442,6 +612,7 @@ function TicketUploadModal({
         member_id: selectedMemberId,
         type: ticketType,
         flight_number: flightNumber,
+        full_ticket_url: fullTicketUrl,
       });
 
       // Always insert new ticket (multiple tickets per person are allowed)
@@ -449,10 +620,13 @@ function TicketUploadModal({
 
       // For event tickets, set sensible defaults for transport fields
       const isEvent = ticketType === 'event';
+      // Database only allows: 'flight', 'train', 'bus', 'other' - map 'event' to 'other'
+      const dbTicketType = ticketType === 'event' ? 'other' : ticketType;
+
       const { error } = await supabase.from('tickets').insert({
         trip_id: tripId,
         member_id: selectedMemberId,
-        type: ticketType,
+        type: dbTicketType,
         carrier: carrier || null,
         flight_number: isEvent ? null : (flightNumber || null),
         departure_location: isEvent ? (carrier || 'Event') : (departureLocation || 'TBD'),
@@ -867,6 +1041,25 @@ function MembersSection({
   );
 }
 
+// Helper to safely format date for datetime-local input
+function formatDateForInput(dateString: string | null | undefined): string {
+  if (!dateString) return '';
+  try {
+    const date = new Date(dateString);
+    if (isNaN(date.getTime())) return '';
+    // Format as YYYY-MM-DDTHH:MM for datetime-local input
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  } catch {
+    console.error('[SettingsSection] Error formatting date:', dateString);
+    return '';
+  }
+}
+
 function SettingsSection({
   trip,
   onUpdate,
@@ -875,18 +1068,26 @@ function SettingsSection({
   onUpdate: () => void;
 }) {
   const navigate = useNavigate();
-  const [name, setName] = useState(trip.name);
+  const [name, setName] = useState(trip.name || '');
   const [groupName, setGroupName] = useState(trip.group_name || '');
   const [description, setDescription] = useState(trip.description || '');
   const [destination, setDestination] = useState(trip.destination || '');
-  const [departureTime, setDepartureTime] = useState(
-    trip.departure_time ? new Date(trip.departure_time).toISOString().slice(0, 16) : ''
-  );
-  const [returnTime, setReturnTime] = useState(
-    trip.return_time ? new Date(trip.return_time).toISOString().slice(0, 16) : ''
-  );
+  const [departureTime, setDepartureTime] = useState(() => formatDateForInput(trip.departure_time));
+  const [returnTime, setReturnTime] = useState(() => formatDateForInput(trip.return_time));
+  const [isSecret, setIsSecret] = useState(trip.is_secret ?? true);
   const [loading, setLoading] = useState(false);
   const [saved, setSaved] = useState(false);
+
+  // Sync state with prop changes when trip is updated (e.g., after save)
+  useEffect(() => {
+    setName(trip.name || '');
+    setGroupName(trip.group_name || '');
+    setDescription(trip.description || '');
+    setDestination(trip.destination || '');
+    setDepartureTime(formatDateForInput(trip.departure_time));
+    setReturnTime(formatDateForInput(trip.return_time));
+    setIsSecret(trip.is_secret ?? true);
+  }, [trip.id]); // Only resync when trip.id changes to avoid overwriting user edits
 
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -902,6 +1103,7 @@ function SettingsSection({
         destination: destination || null,
         departure_time: departureTime ? new Date(departureTime).toISOString() : null,
         return_time: returnTime ? new Date(returnTime).toISOString() : null,
+        is_secret: isSecret,
       })
       .eq('id', trip.id);
 
@@ -984,6 +1186,33 @@ function SettingsSection({
             <p className="text-xs text-white/50 mt-1">
               Used for weather forecast. Hidden from participants until revealed.
             </p>
+          </div>
+
+          {/* Secret Trip Toggle */}
+          <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+            <div className="flex items-center justify-between">
+              <div>
+                <label className="block text-sm font-medium text-white/70">
+                  Secret Trip
+                </label>
+                <p className="text-xs text-white/50 mt-1">
+                  Hide destination and trip details from members until reveal time
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsSecret(!isSecret)}
+                className={`relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  isSecret ? 'bg-blue-500' : 'bg-white/20'
+                }`}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    isSecret ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
           </div>
 
           {/* Date Range */}

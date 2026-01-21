@@ -19,13 +19,6 @@ import {
   RefreshCw,
   Map,
   X,
-  GripVertical,
-  Music,
-  Volume2,
-  VolumeX,
-  Play,
-  Pause,
-  Download,
   EyeOff,
   ZoomIn,
 } from 'lucide-react';
@@ -65,7 +58,7 @@ export default function TripLobbyPage() {
   const [members, setMembers] = useState<TripMember[]>([]);
   const [messages, setMessages] = useState<TripMessage[]>([]);
   const [schedule, setSchedule] = useState<ScheduleItem[]>([]);
-  const [ticket, setTicket] = useState<Ticket | null>(null);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
@@ -138,18 +131,18 @@ export default function TripLobbyPage() {
         setSchedule(scheduleData as ScheduleItem[]);
       }
 
-      // Load user's ticket - use maybeSingle to avoid 406 error when no ticket exists
-      const { data: ticketData, error: ticketError } = await supabase
+      // Load user's tickets (can have multiple - outbound, return, etc.)
+      const { data: ticketsData, error: ticketsError } = await supabase
         .from('tickets')
         .select('*')
         .eq('trip_id', tripId)
         .eq('member_id', user.id)
-        .maybeSingle();
+        .order('departure_time', { ascending: true });
 
-      console.log('[TripLobby] Ticket:', ticketData, 'Error:', ticketError);
+      console.log('[TripLobby] Tickets:', ticketsData?.length, 'Error:', ticketsError);
 
-      if (ticketData) {
-        setTicket(ticketData as Ticket);
+      if (ticketsData) {
+        setTickets(ticketsData as Ticket[]);
       }
     } catch (err) {
       console.error('[TripLobby] Unexpected error:', err);
@@ -191,7 +184,7 @@ export default function TripLobbyPage() {
   }
 
   const departure = new Date(trip.departure_time);
-  const revealStatus = ticket ? getTicketRevealStatus(trip.departure_time) : 'hidden';
+  const revealStatus = tickets.length > 0 ? getTicketRevealStatus(trip.departure_time) : 'hidden';
 
   return (
     <div className="min-h-screen">
@@ -289,7 +282,7 @@ export default function TripLobbyPage() {
               active={activeTab === 'messages'}
               onClick={() => setActiveTab('messages')}
               icon={<MessageSquare className="w-4 h-4" />}
-              label="Messages"
+              label="Chat"
             />
             <TabButton
               active={activeTab === 'media'}
@@ -312,7 +305,7 @@ export default function TripLobbyPage() {
         {activeTab === 'overview' && (
           <OverviewTab
             trip={trip}
-            ticket={ticket}
+            tickets={tickets}
             messages={messages}
             schedule={schedule}
             revealStatus={revealStatus}
@@ -322,7 +315,7 @@ export default function TripLobbyPage() {
         )}
         {activeTab === 'tickets' && (
           <TicketReveal
-            ticket={ticket}
+            tickets={tickets}
             revealStatus={revealStatus}
             departureTime={trip.departure_time}
             trip={trip}
@@ -370,12 +363,18 @@ export default function TripLobbyPage() {
                 onRefresh={loadTripData}
               />
             ) : (
-              <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} trip={trip} memberCount={members.length} />
+              <Timeline schedule={schedule} isAdmin={isAdmin} tripId={tripId!} trip={trip} memberCount={members.length} onRefresh={loadTripData} />
             )}
           </div>
         )}
         {activeTab === 'members' && (
-          <MembersList members={members} isAdmin={isAdmin} tripId={tripId!} lobbyCode={trip?.lobby_code} />
+          <MembersList
+            members={members}
+            isAdmin={isAdmin}
+            tripId={tripId!}
+            lobbyCode={trip?.lobby_code}
+            onShowLocation={() => setActiveTab('location')}
+          />
         )}
         {activeTab === 'location' && (
           <LocationTab tripId={tripId!} members={members} tripEndTime={trip?.return_time} />
@@ -389,7 +388,7 @@ export default function TripLobbyPage() {
           />
         )}
         {activeTab === 'media' && (
-          <MediaTab tripId={tripId!} isAdmin={isAdmin} />
+          <MediaTab tripId={tripId!} />
         )}
         {activeTab === 'route' && (
           <RouteTab tripId={tripId!} schedule={schedule} trip={trip} />
@@ -496,7 +495,7 @@ function isActivityRevealed(startTime: string): boolean {
 
 function OverviewTab({
   trip,
-  ticket,
+  tickets,
   messages,
   schedule,
   revealStatus,
@@ -504,7 +503,7 @@ function OverviewTab({
   isAdmin,
 }: {
   trip: Trip;
-  ticket: Ticket | null;
+  tickets: Ticket[];
   messages: TripMessage[];
   schedule: ScheduleItem[];
   revealStatus: string;
@@ -522,22 +521,42 @@ function OverviewTab({
         <div className="card p-6">
           <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <FileText className="w-5 h-5 text-blue-400" />
-            Your Ticket
+            Your Tickets
           </h2>
-          {ticket ? (
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-white/60 text-sm mb-1">Status</p>
-                <p className="font-medium">
-                  {revealStatus === 'full'
-                    ? 'Fully visible'
-                    : revealStatus === 'qr_only'
-                    ? 'QR code available'
-                    : 'Still hidden'}
-                </p>
-              </div>
-              <button onClick={onViewTicket} className="btn-primary text-sm">
-                View Ticket
+          {tickets.length > 0 ? (
+            <div className="space-y-3">
+              {tickets.map((ticket) => (
+                <div key={ticket.id} className="flex items-center justify-between p-3 bg-white/5 rounded-lg">
+                  <div>
+                    <p className="font-medium">
+                      {ticket.type === 'flight' && ticket.flight_number
+                        ? `${ticket.carrier || ''} ${ticket.flight_number}`.trim()
+                        : ticket.type === 'event'
+                        ? ticket.carrier || 'Event'
+                        : ticket.type}
+                    </p>
+                    <p className="text-white/50 text-sm">
+                      {ticket.departure_location} → {ticket.arrival_location}
+                      {ticket.departure_time && (
+                        <span className="ml-2">
+                          {new Date(ticket.departure_time).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <span className={`text-xs px-2 py-1 rounded-full ${
+                    revealStatus === 'full'
+                      ? 'bg-green-500/20 text-green-400'
+                      : revealStatus === 'qr_only'
+                      ? 'bg-yellow-500/20 text-yellow-400'
+                      : 'bg-white/10 text-white/50'
+                  }`}>
+                    {revealStatus === 'full' ? 'Visible' : revealStatus === 'qr_only' ? 'QR Ready' : 'Hidden'}
+                  </span>
+                </div>
+              ))}
+              <button onClick={onViewTicket} className="btn-primary text-sm w-full mt-2">
+                View All Tickets
               </button>
             </div>
           ) : (
@@ -686,6 +705,7 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
     icon: string;
     humidity: number;
     windSpeed: number;
+    isClimate?: boolean;
     forecast: { date: string; high: number; low: number; condition: string; icon: string }[];
   } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -702,6 +722,15 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
     setError('');
 
     try {
+      // Validate departure date first
+      const startDate = new Date(departureDate);
+      if (isNaN(startDate.getTime())) {
+        console.error('[Weather] Invalid departure date:', departureDate);
+        setError('Invalid trip date');
+        setLoading(false);
+        return;
+      }
+
       // First, geocode the location to get coordinates
       const geoResponse = await fetch(
         `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(location)}&count=1&language=en&format=json`
@@ -716,39 +745,129 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
 
       const { latitude, longitude } = geoData.results[0];
 
-      // Calculate the date range (departure date + 7 days)
-      const startDate = new Date(departureDate);
+      // Calculate days until departure
+      const now = new Date();
+      const daysUntilDeparture = Math.ceil((startDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
       const endDate = new Date(startDate);
       endDate.setDate(endDate.getDate() + 6);
 
-      // Fetch weather data
-      const weatherResponse = await fetch(
-        `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=${startDate.toISOString().split('T')[0]}&end_date=${endDate.toISOString().split('T')[0]}`
-      );
-      const weatherData = await weatherResponse.json();
+      console.log('[Weather] Departure date:', startDate.toISOString(), 'Days until:', daysUntilDeparture);
 
-      // Map weather codes to conditions and icons
-      const weatherCondition = getWeatherCondition(weatherData.current.weather_code);
+      // If more than 10 days away, use historical data from last year for climate indication
+      // Note: Open-Meteo forecast API only supports up to 16 days in advance
+      const useHistorical = daysUntilDeparture > 10;
 
-      setWeather({
-        temperature: Math.round(weatherData.current.temperature_2m),
-        condition: weatherCondition.text,
-        icon: weatherCondition.icon,
-        humidity: weatherData.current.relative_humidity_2m,
-        windSpeed: Math.round(weatherData.current.wind_speed_10m),
-        forecast: weatherData.daily.time.map((date: string, i: number) => ({
-          date,
-          high: Math.round(weatherData.daily.temperature_2m_max[i]),
-          low: Math.round(weatherData.daily.temperature_2m_min[i]),
-          ...getWeatherCondition(weatherData.daily.weather_code[i]),
-        })),
-      });
+      let weatherData;
+      let isClimateData = false;
+
+      if (useHistorical) {
+        // Use historical data from the same period last year
+        const historicalStartDate = new Date(startDate);
+        historicalStartDate.setFullYear(historicalStartDate.getFullYear() - 1);
+        const historicalEndDate = new Date(endDate);
+        historicalEndDate.setFullYear(historicalEndDate.getFullYear() - 1);
+
+        console.log('[Weather] Trip is >10 days away, fetching historical climate data');
+
+        const weatherResponse = await fetch(
+          `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&start_date=${historicalStartDate.toISOString().split('T')[0]}&end_date=${historicalEndDate.toISOString().split('T')[0]}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`
+        );
+        weatherData = await weatherResponse.json();
+        isClimateData = true;
+
+        if (weatherData.error) {
+          console.error('[Weather] Historical API error:', weatherData.reason);
+          setError('Climate data unavailable');
+          setLoading(false);
+          return;
+        }
+      } else {
+        // Fetch regular forecast data
+        console.log('[Weather] Fetching forecast data for next', daysUntilDeparture, 'days');
+        const weatherResponse = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto&start_date=${startDate.toISOString().split('T')[0]}&end_date=${endDate.toISOString().split('T')[0]}`
+        );
+        weatherData = await weatherResponse.json();
+
+        // If forecast API returns error (e.g., dates too far in future), fall back to historical
+        if (weatherData.error || !weatherResponse.ok) {
+          console.log('[Weather] Forecast API error, falling back to historical data:', weatherData.reason || weatherData.error);
+
+          // Try historical data instead
+          const historicalStartDate = new Date(startDate);
+          historicalStartDate.setFullYear(historicalStartDate.getFullYear() - 1);
+          const historicalEndDate = new Date(endDate);
+          historicalEndDate.setFullYear(historicalEndDate.getFullYear() - 1);
+
+          const historicalResponse = await fetch(
+            `https://archive-api.open-meteo.com/v1/archive?latitude=${latitude}&longitude=${longitude}&start_date=${historicalStartDate.toISOString().split('T')[0]}&end_date=${historicalEndDate.toISOString().split('T')[0]}&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=auto`
+          );
+          weatherData = await historicalResponse.json();
+          isClimateData = true;
+
+          if (weatherData.error) {
+            console.error('[Weather] Historical API also failed:', weatherData.reason);
+            setError('Weather data unavailable');
+            setLoading(false);
+            return;
+          }
+        }
+      }
+
+      if (isClimateData) {
+        // For climate data, calculate averages
+        const avgHigh = Math.round(weatherData.daily.temperature_2m_max.reduce((a: number, b: number) => a + b, 0) / weatherData.daily.temperature_2m_max.length);
+        const mostCommonWeatherCode = getMostCommonValue(weatherData.daily.weather_code);
+        const weatherCondition = getWeatherCondition(mostCommonWeatherCode);
+
+        setWeather({
+          temperature: avgHigh,
+          condition: `${weatherCondition.text} (typical)`,
+          icon: weatherCondition.icon,
+          humidity: 0, // Not available in historical
+          windSpeed: 0, // Not available in historical
+          isClimate: true,
+          forecast: weatherData.daily.time.map((date: string, i: number) => ({
+            date: new Date(new Date(date).setFullYear(new Date(date).getFullYear() + 1)).toISOString().split('T')[0],
+            high: Math.round(weatherData.daily.temperature_2m_max[i]),
+            low: Math.round(weatherData.daily.temperature_2m_min[i]),
+            ...getWeatherCondition(weatherData.daily.weather_code[i]),
+          })),
+        });
+      } else {
+        // Regular forecast data
+        const weatherCondition = getWeatherCondition(weatherData.current.weather_code);
+
+        setWeather({
+          temperature: Math.round(weatherData.current.temperature_2m),
+          condition: weatherCondition.text,
+          icon: weatherCondition.icon,
+          humidity: weatherData.current.relative_humidity_2m,
+          windSpeed: Math.round(weatherData.current.wind_speed_10m),
+          isClimate: false,
+          forecast: weatherData.daily.time.map((date: string, i: number) => ({
+            date,
+            high: Math.round(weatherData.daily.temperature_2m_max[i]),
+            low: Math.round(weatherData.daily.temperature_2m_min[i]),
+            ...getWeatherCondition(weatherData.daily.weather_code[i]),
+          })),
+        });
+      }
     } catch (err) {
       console.error('Weather fetch error:', err);
       setError('Could not load weather');
     } finally {
       setLoading(false);
     }
+  }
+
+  // Helper to find most common value in array
+  function getMostCommonValue(arr: number[]): number {
+    const counts = arr.reduce((acc: Record<number, number>, val) => {
+      acc[val] = (acc[val] || 0) + 1;
+      return acc;
+    }, {});
+    return Number(Object.keys(counts).reduce((a, b) => counts[Number(a)] > counts[Number(b)] ? a : b));
   }
 
   // Map WMO weather codes to conditions
@@ -950,24 +1069,39 @@ function WeatherCard({ destination, departureDate, isAdmin }: { destination?: st
     <div className="card p-6">
       <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
         <span className="text-2xl">{weather.icon}</span>
-        Weather in {destination}
+        {weather.isClimate ? 'Climate' : 'Weather'} in {destination}
       </h2>
 
-      {/* Current weather */}
+      {weather.isClimate && (
+        <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-4">
+          <p className="text-xs text-blue-300">
+            📅 Based on historical data from last year. Actual weather may vary.
+          </p>
+        </div>
+      )}
+
+      {/* Current/Average weather */}
       <div className="flex items-center justify-between mb-4">
         <div>
           <p className="text-4xl font-bold">{weather.temperature}°C</p>
           <p className="text-white/60">{weather.condition}</p>
+          {weather.isClimate && (
+            <p className="text-xs text-white/40">Average high temperature</p>
+          )}
         </div>
-        <div className="text-right text-sm text-white/50">
-          <p>💧 {weather.humidity}%</p>
-          <p>💨 {weather.windSpeed} km/h</p>
-        </div>
+        {!weather.isClimate && (
+          <div className="text-right text-sm text-white/50">
+            <p>💧 {weather.humidity}%</p>
+            <p>💨 {weather.windSpeed} km/h</p>
+          </div>
+        )}
       </div>
 
       {/* Forecast */}
       <div className="border-t border-white/10 pt-4">
-        <p className="text-xs text-white/40 mb-3">Trip forecast</p>
+        <p className="text-xs text-white/40 mb-3">
+          {weather.isClimate ? 'Typical weather for this period' : 'Trip forecast'}
+        </p>
         <div className="grid grid-cols-4 gap-2">
           {weather.forecast.slice(0, 4).map((day) => (
             <div key={day.date} className="text-center">
@@ -1103,38 +1237,73 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
       return;
     }
 
+    // Check permission status first (if available)
+    if (navigator.permissions) {
+      try {
+        const permission = await navigator.permissions.query({ name: 'geolocation' });
+        locationLog('Permission status', permission.state);
+        if (permission.state === 'denied') {
+          setError('Location access is blocked. Please enable it in your browser settings and reload the page.');
+          locationLog('Location permission denied');
+          return;
+        }
+      } catch (e) {
+        locationLog('Could not check permission status', e);
+      }
+    }
+
     setSharing(true);
     setGettingLocation(true);
     setError('');
     setDebugMsg('Requesting location permission...');
+    locationLog('Calling watchPosition...');
+
+    // Timeout to catch silent failures
+    const timeoutId = setTimeout(() => {
+      if (gettingLocation) {
+        locationLog('watchPosition timeout - no response after 20s');
+        setDebugMsg('Location request timed out. Try again or check browser permissions.');
+        setError('Could not get location. Please check your browser permissions and try again.');
+        setGettingLocation(false);
+      }
+    }, 20000);
 
     const id = navigator.geolocation.watchPosition(
       async (position) => {
-        const { latitude, longitude, accuracy } = position.coords;
-        locationLog('Position received', { latitude, longitude, accuracy });
-        setMyLocation({ lat: latitude, lng: longitude });
-        setGettingLocation(false);
-        setDebugMsg(`Got location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)} (accuracy: ${Math.round(accuracy)}m)`);
+        try {
+          clearTimeout(timeoutId);
+          const { latitude, longitude, accuracy } = position.coords;
+          locationLog('Position received', { latitude, longitude, accuracy });
+          setMyLocation({ lat: latitude, lng: longitude });
+          setGettingLocation(false);
+          setDebugMsg(`Got location: ${latitude.toFixed(4)}, ${longitude.toFixed(4)} (accuracy: ${Math.round(accuracy)}m)`);
 
-        // Update location in database
-        const { error: upsertError } = await supabase.from('member_locations').upsert({
-          trip_id: tripId,
-          user_id: user.id,
-          latitude,
-          longitude,
-          updated_at: new Date().toISOString(),
-        });
+          // Update location in database
+          const { error: upsertError } = await supabase.from('member_locations').upsert({
+            trip_id: tripId,
+            user_id: user.id,
+            latitude,
+            longitude,
+            updated_at: new Date().toISOString(),
+          });
 
-        if (upsertError) {
-          locationLog('Error upserting location', upsertError);
-          setDebugMsg(`DB error: ${upsertError.message}`);
-        } else {
-          locationLog('Location saved to database');
-          // Reload to get the updated list
-          loadLocations();
+          if (upsertError) {
+            locationLog('Error upserting location', upsertError);
+            setDebugMsg(`DB error: ${upsertError.message}`);
+          } else {
+            locationLog('Location saved to database');
+            // Reload to get the updated list
+            loadLocations();
+          }
+        } catch (callbackError) {
+          // This can happen if a browser extension interferes with geolocation
+          locationLog('Error in position callback (possibly browser extension)', callbackError);
+          setError('Location callback error. A browser extension may be interfering with location services. Try disabling location-related extensions.');
+          setGettingLocation(false);
         }
       },
       (err) => {
+        clearTimeout(timeoutId);
         locationLog('Geolocation error', { code: err.code, message: err.message });
         let errorMsg = 'Error getting location';
         switch (err.code) {
@@ -1303,7 +1472,10 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
 
         {error && (
           <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm mb-4">
-            {error}
+            <p>{error}</p>
+            <p className="text-xs text-red-300/70 mt-2">
+              If location keeps failing, try disabling browser extensions (especially location-spoofing tools) or use a different browser.
+            </p>
           </div>
         )}
 
@@ -1397,28 +1569,15 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
   );
 }
 
-function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
+function MediaTab({ tripId }: { tripId: string }) {
   const { user } = useAuth();
   const [media, setMedia] = useState<MediaItem[]>([]);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
   const [uploadError, setUploadError] = useState('');
-  const [showAftermovie, setShowAftermovie] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [generationStep, setGenerationStep] = useState(0);
-  const [aftermovieReady, setAftermovieReady] = useState(false);
-  const [currentSlide, setCurrentSlide] = useState(0);
-  const [editMode, setEditMode] = useState(false);
-  const [selectedPhotos, setSelectedPhotos] = useState<string[]>([]);
   const [enlargedItem, setEnlargedItem] = useState<MediaItem | null>(null);
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [musicEnabled, setMusicEnabled] = useState(true);
   const [currentLocation, setCurrentLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [customAudioFile, setCustomAudioFile] = useState<File | null>(null);
-  const [customAudioUrl, setCustomAudioUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const audioInputRef = useRef<HTMLInputElement>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
 
   // Get current location for geotagging uploads
   useEffect(() => {
@@ -1438,49 +1597,8 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
     loadMedia();
   }, [tripId]);
 
-  // Slideshow effect for aftermovie preview - now includes videos
+  // Media arrays for display
   const photos = media.filter(m => m.type === 'photo');
-  const videos = media.filter(m => m.type === 'video');
-  const allMedia = [...photos, ...videos]; // Photos first, then videos
-  const selectedForMovie = editMode && selectedPhotos.length > 0
-    ? allMedia.filter(p => selectedPhotos.includes(p.id))
-    : allMedia;
-
-  useEffect(() => {
-    if (aftermovieReady && selectedForMovie.length > 0 && isPlaying) {
-      const interval = setInterval(() => {
-        setCurrentSlide((prev) => (prev + 1) % selectedForMovie.length);
-      }, 3000);
-      return () => clearInterval(interval);
-    }
-  }, [aftermovieReady, selectedForMovie.length, isPlaying]);
-
-  // Audio setup for aftermovie
-  useEffect(() => {
-    if (aftermovieReady && musicEnabled && customAudioUrl) {
-      // Create audio context for background music
-      if (!audioRef.current || audioRef.current.src !== customAudioUrl) {
-        if (audioRef.current) {
-          audioRef.current.pause();
-        }
-        audioRef.current = new Audio(customAudioUrl);
-        audioRef.current.loop = true;
-        audioRef.current.volume = 0.3;
-      }
-      if (isPlaying) {
-        audioRef.current.play().catch((e) => console.log('Audio autoplay blocked:', e));
-      } else {
-        audioRef.current.pause();
-      }
-    } else if (audioRef.current) {
-      audioRef.current.pause();
-    }
-    return () => {
-      if (audioRef.current) {
-        audioRef.current.pause();
-      }
-    };
-  }, [aftermovieReady, musicEnabled, isPlaying, customAudioUrl]);
 
   // Keyboard navigation for lightbox
   useEffect(() => {
@@ -1505,17 +1623,6 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [enlargedItem, media]);
-
-  // Handle custom audio file upload
-  function handleAudioUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) {
-      setCustomAudioFile(file);
-      const url = URL.createObjectURL(file);
-      setCustomAudioUrl(url);
-      setMusicEnabled(true);
-    }
-  }
 
   async function loadMedia() {
     console.log('[MediaTab] Loading media for trip:', tripId);
@@ -1625,134 +1732,6 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
     }
   }
 
-  function togglePhotoSelection(photoId: string) {
-    setSelectedPhotos(prev =>
-      prev.includes(photoId)
-        ? prev.filter(id => id !== photoId)
-        : [...prev, photoId]
-    );
-  }
-
-  async function generateAftermovie() {
-    const mediaToUse = editMode && selectedPhotos.length > 0
-      ? allMedia.filter(p => selectedPhotos.includes(p.id))
-      : allMedia;
-
-    if (mediaToUse.length < 3) {
-      setUploadError('You need at least 3 photos/videos to generate an aftermovie. Select more or add more to the gallery.');
-      return;
-    }
-
-    setGenerating(true);
-    setShowAftermovie(true);
-    setAftermovieReady(false);
-    setCurrentSlide(0);
-    setIsPlaying(true);
-
-    // Simulate aftermovie generation steps
-    for (let i = 0; i < generationSteps.length; i++) {
-      setGenerationStep(i);
-      await new Promise((r) => setTimeout(r, 1500));
-    }
-
-    setGenerating(false);
-    setAftermovieReady(true);
-  }
-
-  function closeAftermovie() {
-    setShowAftermovie(false);
-    setAftermovieReady(false);
-    setIsPlaying(false);
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-    }
-  }
-
-  // Export functionality - download images or share
-  async function handleExportAftermovie() {
-    const mediaToExport = editMode && selectedPhotos.length > 0
-      ? allMedia.filter(p => selectedPhotos.includes(p.id))
-      : allMedia;
-
-    if (mediaToExport.length === 0) {
-      setUploadError('No media to export');
-      return;
-    }
-
-    // Check if Web Share API is available with files
-    if (navigator.share && navigator.canShare) {
-      try {
-        // Try to share the slideshow
-        const shareData = {
-          title: 'GroupTrips Aftermovie',
-          text: `Check out our trip memories! ${mediaToExport.length} photos/videos.`,
-          url: window.location.href,
-        };
-
-        if (navigator.canShare(shareData)) {
-          await navigator.share(shareData);
-          return;
-        }
-      } catch (err) {
-        console.log('Web Share cancelled or failed:', err);
-      }
-    }
-
-    // Fallback: Download images sequentially
-    setUploadError('Downloading images...');
-
-    for (let i = 0; i < mediaToExport.length; i++) {
-      const item = mediaToExport[i];
-      try {
-        const response = await fetch(item.file_url);
-        const blob = await response.blob();
-        const ext = item.type === 'video' ? 'mp4' : 'jpg';
-        const filename = `grouptrips-memory-${String(i + 1).padStart(3, '0')}.${ext}`;
-
-        // Create download link
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = filename;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-
-        // Small delay between downloads to prevent browser blocking
-        await new Promise(r => setTimeout(r, 300));
-      } catch (err) {
-        console.error('Failed to download:', item.file_url, err);
-      }
-    }
-
-    // Download audio if available
-    if (customAudioFile) {
-      const audioUrl = URL.createObjectURL(customAudioFile);
-      const a = document.createElement('a');
-      a.href = audioUrl;
-      a.download = `grouptrips-audio.${customAudioFile.name.split('.').pop()}`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(audioUrl);
-    }
-
-    setUploadError(`Downloaded ${mediaToExport.length} files${customAudioFile ? ' + audio' : ''}!`);
-    setTimeout(() => setUploadError(''), 3000);
-  }
-
-  const generationSteps = [
-    'Collecting media files...',
-    'Analyzing photo compositions...',
-    'Selecting best moments...',
-    'Syncing with music...',
-    'Adding transitions...',
-    'Rendering video...',
-    'Finalizing...',
-  ];
-
   if (media.length === 0) {
     return (
       <div className="card p-12 text-center">
@@ -1761,7 +1740,7 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
         <p className="text-white/50 mb-6">
           Upload photos and videos from your trip.
           <br />
-          After the trip, generate an aftermovie with music sync!
+          Share memories with your group!
         </p>
 
         {uploadError && (
@@ -1833,44 +1812,8 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
               'Add Media'
             )}
           </button>
-          {/* Admin-only: Edit selection for aftermovie */}
-          {isAdmin && allMedia.length >= 1 && (
-            <button
-              onClick={() => {
-                setEditMode(!editMode);
-                if (editMode) setSelectedPhotos([]);
-              }}
-              className={`btn-secondary flex items-center gap-2 ${editMode ? 'ring-2 ring-fuchsia-500' : ''}`}
-            >
-              <GripVertical className="w-4 h-4" />
-              {editMode ? 'Done Editing' : 'Edit Selection'}
-            </button>
-          )}
-          {/* Admin-only: Generate aftermovie */}
-          {isAdmin && allMedia.length >= 3 && (
-            <button
-              onClick={generateAftermovie}
-              className="btn-primary flex items-center gap-2"
-            >
-              <Play className="w-4 h-4" />
-              {editMode && selectedPhotos.length > 0
-                ? `Create with ${selectedPhotos.length} items`
-                : 'Generate Aftermovie'}
-            </button>
-          )}
         </div>
       </div>
-
-      {/* Edit mode instructions */}
-      {editMode && (
-        <div className="bg-fuchsia-500/20 border border-fuchsia-500/50 rounded-xl p-4 text-sm">
-          <p className="font-medium mb-1">✨ Edit Mode Active</p>
-          <p className="text-white/70">
-            Click on photos and videos to select/deselect them for your aftermovie.
-            {selectedPhotos.length > 0 && ` Selected: ${selectedPhotos.length} items`}
-          </p>
-        </div>
-      )}
 
       {/* Error message */}
       {uploadError && (
@@ -1884,29 +1827,13 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
         {media.map((item) => (
           <div
             key={item.id}
-            onClick={() => {
-              if (editMode) {
-                togglePhotoSelection(item.id);
-              } else {
-                setEnlargedItem(item);
-              }
-            }}
-            className={`aspect-square rounded-xl overflow-hidden bg-white/5 relative group cursor-pointer hover:ring-2 hover:ring-white/30 transition-all ${
-              editMode && selectedPhotos.includes(item.id)
-                ? 'ring-4 ring-fuchsia-500 ring-offset-2 ring-offset-slate-900'
-                : ''
-            }`}
+            onClick={() => setEnlargedItem(item)}
+            className="aspect-square rounded-xl overflow-hidden bg-white/5 relative group cursor-pointer hover:ring-2 hover:ring-white/30 transition-all"
           >
             {item.type === 'video' ? (
               <video
                 src={item.file_url}
                 className="w-full h-full object-cover"
-                onClick={(e) => {
-                  if (!editMode) {
-                    e.stopPropagation();
-                    setEnlargedItem(item);
-                  }
-                }}
               />
             ) : (
               <img
@@ -1916,22 +1843,10 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
                 loading="lazy"
               />
             )}
-            {/* Selection indicator */}
-            {editMode && (
-              <div className={`absolute top-2 right-2 w-6 h-6 rounded-full border-2 flex items-center justify-center ${
-                selectedPhotos.includes(item.id)
-                  ? 'bg-fuchsia-500 border-fuchsia-500'
-                  : 'bg-black/50 border-white/50'
-              }`}>
-                {selectedPhotos.includes(item.id) && <Check className="w-4 h-4" />}
-              </div>
-            )}
             {/* Zoom icon on hover */}
-            {!editMode && (
-              <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-            )}
+            <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+              <ZoomIn className="w-8 h-8 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
             {/* Location indicator */}
             {item.latitude && item.longitude && (
               <div className="absolute top-2 left-2 bg-green-500/80 px-2 py-1 rounded-full text-xs flex items-center gap-1">
@@ -2021,209 +1936,6 @@ function MediaTab({ tripId, isAdmin }: { tripId: string; isAdmin: boolean }) {
         </div>
       )}
 
-      {/* Aftermovie Modal */}
-      {showAftermovie && (
-        <div className="fixed inset-0 bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-slate-800 border border-white/10 rounded-2xl p-8 max-w-2xl w-full text-center">
-            {generating ? (
-              <>
-                <div className="w-20 h-20 rounded-full bg-gradient-to-br from-fuchsia-500 to-blue-500 flex items-center justify-center mx-auto mb-6 animate-pulse">
-                  <svg className="w-10 h-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <polygon points="5 3 19 12 5 21 5 3" />
-                  </svg>
-                </div>
-                <h2 className="text-2xl font-bold mb-2">Generating Aftermovie</h2>
-                <p className="text-white/60 mb-6">
-                  {generationSteps[generationStep]}
-                </p>
-                <div className="w-full bg-white/10 rounded-full h-2 mb-4">
-                  <div
-                    className="bg-gradient-to-r from-fuchsia-500 to-blue-500 h-2 rounded-full transition-all duration-500"
-                    style={{ width: `${((generationStep + 1) / generationSteps.length) * 100}%` }}
-                  />
-                </div>
-                <p className="text-sm text-white/40">
-                  Step {generationStep + 1} of {generationSteps.length}
-                </p>
-              </>
-            ) : aftermovieReady ? (
-              <>
-                <h2 className="text-2xl font-bold mb-2">Your Aftermovie</h2>
-                <p className="text-white/60 mb-4">
-                  {selectedForMovie.filter(m => m.type === 'photo').length} photos, {selectedForMovie.filter(m => m.type === 'video').length} videos compiled with music sync
-                </p>
-
-                {/* Slideshow Preview */}
-                <div className="aspect-video bg-black rounded-xl mb-4 relative overflow-hidden">
-                  {selectedForMovie.map((item, index) => (
-                    item.type === 'video' ? (
-                      <video
-                        key={item.id}
-                        src={item.file_url}
-                        autoPlay={index === currentSlide && isPlaying}
-                        muted={musicEnabled} // Mute video if music is on
-                        loop
-                        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
-                          index === currentSlide ? 'opacity-100' : 'opacity-0'
-                        }`}
-                      />
-                    ) : (
-                      <img
-                        key={item.id}
-                        src={item.file_url}
-                        alt=""
-                        className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${
-                          index === currentSlide ? 'opacity-100' : 'opacity-0'
-                        }`}
-                      />
-                    )
-                  ))}
-
-                  {/* GroupTrips Watermark */}
-                  <div className="absolute bottom-4 right-4 flex items-center gap-2 bg-black/40 backdrop-blur-sm px-3 py-1.5 rounded-full">
-                    <Plane className="w-4 h-4 text-blue-400" />
-                    <span className="text-sm font-semibold text-white/90">GroupTrips</span>
-                  </div>
-
-                  {/* Music visualization overlay */}
-                  {musicEnabled && isPlaying && (
-                    <div className="absolute bottom-0 left-0 right-0 h-16 bg-gradient-to-t from-black/80 to-transparent flex items-end justify-center pb-3">
-                      <div className="flex items-end gap-1">
-                        {[...Array(20)].map((_, i) => (
-                          <div
-                            key={i}
-                            className="w-1 bg-gradient-to-t from-fuchsia-500 to-blue-500 rounded-full animate-pulse"
-                            style={{
-                              height: `${Math.random() * 24 + 8}px`,
-                              animationDelay: `${i * 0.05}s`,
-                              animationDuration: '0.5s'
-                            }}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Playback controls overlay */}
-                  <div className="absolute inset-0 flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity">
-                    <button
-                      onClick={() => setIsPlaying(!isPlaying)}
-                      className="w-16 h-16 rounded-full bg-black/50 flex items-center justify-center hover:bg-black/70 transition-colors"
-                    >
-                      {isPlaying ? (
-                        <Pause className="w-8 h-8" />
-                      ) : (
-                        <Play className="w-8 h-8 ml-1" />
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Top controls */}
-                  <div className="absolute top-4 left-4 right-4 flex items-center justify-between">
-                    <div className="flex items-center gap-2 bg-black/50 px-3 py-1.5 rounded-full">
-                      <div className={`w-2 h-2 rounded-full ${isPlaying ? 'bg-red-500 animate-pulse' : 'bg-gray-500'}`} />
-                      <span className="text-xs font-medium">{isPlaying ? 'Playing' : 'Paused'}</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => setMusicEnabled(!musicEnabled)}
-                        className="bg-black/50 p-2 rounded-full hover:bg-black/70 transition-colors"
-                      >
-                        {musicEnabled ? (
-                          <Volume2 className="w-4 h-4" />
-                        ) : (
-                          <VolumeX className="w-4 h-4" />
-                        )}
-                      </button>
-                      <div className="bg-black/50 px-3 py-1.5 rounded-full text-xs">
-                        {currentSlide + 1} / {selectedForMovie.length}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Thumbnail strip */}
-                <div className="flex gap-2 mb-6 overflow-x-auto pb-2">
-                  {selectedForMovie.slice(0, 10).map((item, index) => (
-                    <button
-                      key={item.id}
-                      onClick={() => setCurrentSlide(index)}
-                      className={`flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden border-2 transition-all ${
-                        index === currentSlide ? 'border-fuchsia-500 scale-105' : 'border-transparent opacity-60'
-                      }`}
-                    >
-                      <img src={item.file_url} alt="" className="w-full h-full object-cover" />
-                    </button>
-                  ))}
-                  {selectedForMovie.length > 10 && (
-                    <div className="flex-shrink-0 w-16 h-16 rounded-lg bg-white/10 flex items-center justify-center text-sm text-white/50">
-                      +{selectedForMovie.length - 10}
-                    </div>
-                  )}
-                </div>
-
-                {/* Music Selection */}
-                <div className="bg-white/5 rounded-xl p-4 mb-4">
-                  <div className="flex items-center gap-2 mb-3 text-sm font-medium">
-                    <Music className="w-4 h-4 text-fuchsia-400" />
-                    <span>Background Music</span>
-                  </div>
-                  <div className="flex flex-wrap gap-2 items-center">
-                    <input
-                      ref={audioInputRef}
-                      type="file"
-                      accept="audio/*"
-                      onChange={handleAudioUpload}
-                      className="hidden"
-                    />
-                    <button
-                      onClick={() => audioInputRef.current?.click()}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                        customAudioFile
-                          ? 'bg-fuchsia-500/30 text-fuchsia-300 border border-fuchsia-500/50'
-                          : 'bg-white/10 text-white/60 hover:bg-white/20'
-                      }`}
-                    >
-                      {customAudioFile ? `♪ ${customAudioFile.name.substring(0, 20)}...` : '+ Upload Audio'}
-                    </button>
-                    {customAudioFile && (
-                      <button
-                        onClick={() => {
-                          setCustomAudioFile(null);
-                          setCustomAudioUrl(null);
-                          setMusicEnabled(false);
-                        }}
-                        className="px-2 py-1 text-xs text-red-400 hover:text-red-300"
-                      >
-                        Remove
-                      </button>
-                    )}
-                    {!customAudioFile && (
-                      <span className="text-xs text-white/40">No audio selected - upload your own music</span>
-                    )}
-                  </div>
-                </div>
-
-                <div className="flex gap-3">
-                  <button
-                    onClick={closeAftermovie}
-                    className="btn-secondary flex-1"
-                  >
-                    Close
-                  </button>
-                  <button
-                    className="btn-primary flex-1 flex items-center justify-center gap-2"
-                    onClick={handleExportAftermovie}
-                  >
-                    <Download className="w-4 h-4" />
-                    Download All
-                  </button>
-                </div>
-              </>
-            ) : null}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
