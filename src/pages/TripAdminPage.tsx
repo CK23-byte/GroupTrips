@@ -620,10 +620,13 @@ function TicketUploadModal({
 
       // For event tickets, set sensible defaults for transport fields
       const isEvent = ticketType === 'event';
+      // Database only allows: 'flight', 'train', 'bus', 'other' - map 'event' to 'other'
+      const dbTicketType = ticketType === 'event' ? 'other' : ticketType;
+
       const { error } = await supabase.from('tickets').insert({
         trip_id: tripId,
         member_id: selectedMemberId,
-        type: ticketType,
+        type: dbTicketType,
         carrier: carrier || null,
         flight_number: isEvent ? null : (flightNumber || null),
         departure_location: isEvent ? (carrier || 'Event') : (departureLocation || 'TBD'),

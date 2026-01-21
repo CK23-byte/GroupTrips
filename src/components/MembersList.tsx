@@ -18,6 +18,7 @@ interface MembersListProps {
   isAdmin: boolean;
   tripId: string;
   lobbyCode?: string;
+  onShowLocation?: () => void;
 }
 
 export default function MembersList({
@@ -25,8 +26,8 @@ export default function MembersList({
   isAdmin,
   tripId,
   lobbyCode,
+  onShowLocation,
 }: MembersListProps) {
-  const [showLocationMap, setShowLocationMap] = useState(false);
   const [showInvite, setShowInvite] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -66,13 +67,15 @@ export default function MembersList({
               Invite Members
             </button>
           )}
-          <button
-            onClick={() => setShowLocationMap(!showLocationMap)}
-            className="btn-secondary text-sm flex items-center gap-2"
-          >
-            <MapPin className="w-4 h-4" />
-            {showLocationMap ? 'List view' : 'Map view'}
-          </button>
+          {onShowLocation && (
+            <button
+              onClick={onShowLocation}
+              className="btn-secondary text-sm flex items-center gap-2"
+            >
+              <MapPin className="w-4 h-4" />
+              Live Location
+            </button>
+          )}
         </div>
       </div>
 
@@ -104,12 +107,8 @@ export default function MembersList({
         </div>
       )}
 
-      {showLocationMap ? (
-        <LocationMap members={members} />
-      ) : (
-        <>
-          {/* Admins */}
-          {admins.length > 0 && (
+      {/* Admins */}
+      {admins.length > 0 && (
             <div>
               <h3 className="text-sm font-medium text-white/50 mb-3 flex items-center gap-2">
                 <Crown className="w-4 h-4 text-yellow-400" />
@@ -148,8 +147,6 @@ export default function MembersList({
               </div>
             </div>
           )}
-        </>
-      )}
     </div>
   );
 }
@@ -249,43 +246,3 @@ function MemberCard({
   );
 }
 
-function LocationMap({ members }: { members: TripMember[] }) {
-  // Placeholder for actual map implementation
-  // In production, you'd integrate with Google Maps, Mapbox, or Leaflet
-  return (
-    <div className="card p-8">
-      <div className="aspect-video bg-white/5 rounded-xl flex flex-col items-center justify-center mb-4">
-        <MapPin className="w-12 h-12 text-white/20 mb-2" />
-        <p className="text-white/50 text-center">
-          Interactive Map
-          <br />
-          <span className="text-sm">(Location sharing must be enabled)</span>
-        </p>
-      </div>
-
-      <div className="space-y-2">
-        {members.map((member) => (
-          <div
-            key={member.id}
-            className="flex items-center justify-between p-3 bg-white/5 rounded-lg"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center text-sm">
-                {member.user?.name?.charAt(0) || '?'}
-              </div>
-              <span className="text-sm">{member.user?.name}</span>
-            </div>
-            <span className="text-xs text-white/40">Location unknown</span>
-          </div>
-        ))}
-      </div>
-
-      <div className="mt-4 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl">
-        <p className="text-sm text-blue-200">
-          Tip: Enable location sharing to see where everyone is. This helps
-          with meeting up and ensures nobody gets lost.
-        </p>
-      </div>
-    </div>
-  );
-}

@@ -24,6 +24,8 @@ import {
   Check,
   Navigation,
   Save,
+  FileText,
+  Loader2,
 } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import type { ScheduleItem, Trip } from '../types';
@@ -85,6 +87,7 @@ const typeColors: Record<string, string> = {
 
 export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount, onRefresh }: TimelineProps) {
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [selectedActivity, setSelectedActivity] = useState<ScheduleItem | null>(null);
 
   // Group schedule items by date
@@ -160,6 +163,13 @@ export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount,
       {isAdmin && (
         <div className="mb-6 flex justify-end gap-3">
           <button
+            onClick={() => setShowImportModal(true)}
+            className="btn-secondary flex items-center gap-2"
+          >
+            <FileText className="w-5 h-5" />
+            AI Import
+          </button>
+          <button
             onClick={() => setShowSuggestionsModal(true)}
             className="btn-secondary flex items-center gap-2"
           >
@@ -171,7 +181,7 @@ export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount,
             className="btn-primary flex items-center gap-2"
           >
             <Plus className="w-5 h-5" />
-            Add Activity
+            Add
           </button>
         </div>
       )}
@@ -228,6 +238,18 @@ export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount,
           onClose={() => setShowSuggestionsModal(false)}
           onAdded={() => {
             setShowSuggestionsModal(false);
+            if (onRefresh) onRefresh();
+          }}
+        />
+      )}
+
+      {showImportModal && (
+        <AIImportModal
+          tripId={tripId}
+          trip={trip}
+          onClose={() => setShowImportModal(false)}
+          onAdded={() => {
+            setShowImportModal(false);
             if (onRefresh) onRefresh();
           }}
         />
@@ -1319,6 +1341,244 @@ function AISuggestionsModal({
                 className="btn-secondary flex-1"
               >
                 Get New Suggestions
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// AI Import Modal - parse text (emails, confirmations) into schedule items
+interface ParsedItem {
+  title: string;
+  type: ScheduleItem['type'];
+  start_time: string;
+  end_time?: string;
+  location?: string;
+  description?: string;
+  booking_reference?: string;
+}
+
+function AIImportModal({
+  tripId,
+  trip,
+  onClose,
+  onAdded,
+}: {
+  tripId: string;
+  trip?: Trip | null;
+  onClose: () => void;
+  onAdded: () => void;
+}) {
+  const [text, setText] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [parsedItems, setParsedItems] = useState<ParsedItem[]>([]);
+  const [error, setError] = useState('');
+  const [adding, setAdding] = useState<number | null>(null);
+
+  async function handleParse() {
+    if (!text.trim()) return;
+    setLoading(true);
+    setError('');
+    setParsedItems([]);
+
+    try {
+      const response = await fetch('/api/parse-booking', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text,
+          tripDates: trip ? {
+            start: trip.departure_time,
+            end: trip.return_time,
+          } : undefined,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.error) {
+        setError(data.error);
+      } else if (data.items && data.items.length > 0) {
+        setParsedItems(data.items);
+      } else {
+        setError('Could not find any activities in the text. Try pasting a booking confirmation or flight itinerary.');
+      }
+    } catch {
+      setError('Failed to parse text. Please try again.');
+    }
+
+    setLoading(false);
+  }
+
+  async function handleAddItem(item: ParsedItem, index: number) {
+    if (adding !== null) return;
+    setAdding(index);
+
+    try {
+      const { error: insertError } = await supabase.from('schedule_items').insert({
+        trip_id: tripId,
+        title: item.title,
+        type: item.type,
+        start_time: item.start_time,
+        end_time: item.end_time || null,
+        location: item.location || null,
+        description: item.description || null,
+        reservation_code: item.booking_reference || null,
+      });
+
+      if (insertError) {
+        console.error('[AIImport] Insert error:', insertError);
+        setError(`Failed to add: ${insertError.message}`);
+        setAdding(null);
+        return;
+      }
+
+      // Remove from list
+      setParsedItems(parsedItems.filter((_, i) => i !== index));
+      setAdding(null);
+
+      if (parsedItems.length === 1) {
+        onAdded();
+      }
+    } catch (err) {
+      console.error('[AIImport] Unexpected error:', err);
+      setError('An unexpected error occurred');
+      setAdding(null);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-slate-800 border border-white/10 rounded-2xl p-6 max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center">
+            <FileText className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-xl font-bold">AI Import</h2>
+            <p className="text-sm text-white/50">Paste booking confirmations, flight details, or any travel text</p>
+          </div>
+        </div>
+
+        {parsedItems.length === 0 ? (
+          <div className="space-y-4">
+            <textarea
+              value={text}
+              onChange={(e) => setText(e.target.value)}
+              placeholder="Paste your booking confirmation, flight itinerary, hotel reservation, or any travel-related text here...
+
+Example:
+Flight KL1234
+Amsterdam (AMS) → Barcelona (BCN)
+Departure: 15 Jan 2026, 08:30
+Arrival: 15 Jan 2026, 11:00"
+              className="input-field resize-none h-48 font-mono text-sm"
+            />
+
+            {error && (
+              <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-3">
+              <button onClick={onClose} className="btn-secondary flex-1">
+                Cancel
+              </button>
+              <button
+                onClick={handleParse}
+                disabled={loading || !text.trim()}
+                className="btn-primary flex-1 flex items-center justify-center gap-2"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Parsing...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4" />
+                    Parse with AI
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <p className="text-sm text-white/60">
+              Found {parsedItems.length} item(s). Click + to add to schedule:
+            </p>
+
+            {parsedItems.map((item, index) => (
+              <div
+                key={index}
+                className="p-4 bg-white/5 border border-white/10 rounded-xl"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className={`p-1.5 rounded-lg bg-gradient-to-br ${typeColors[item.type] || 'from-gray-500 to-gray-600'}`}>
+                        {typeIcons[item.type] || <Clock className="w-4 h-4" />}
+                      </span>
+                      <h4 className="font-semibold">{item.title}</h4>
+                    </div>
+                    <div className="text-sm text-white/60 space-y-1">
+                      <p>
+                        📅 {new Date(item.start_time).toLocaleString('en-US', {
+                          weekday: 'short',
+                          month: 'short',
+                          day: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                        {item.end_time && (
+                          <> → {new Date(item.end_time).toLocaleTimeString('en-US', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}</>
+                        )}
+                      </p>
+                      {item.location && <p>📍 {item.location}</p>}
+                      {item.booking_reference && <p>🔖 {item.booking_reference}</p>}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleAddItem(item, index)}
+                    disabled={adding !== null}
+                    className="btn-primary text-sm py-2 px-4"
+                  >
+                    {adding === index ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Plus className="w-4 h-4" />
+                    )}
+                  </button>
+                </div>
+              </div>
+            ))}
+
+            {error && (
+              <div className="p-3 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm">
+                {error}
+              </div>
+            )}
+
+            <div className="flex gap-3 pt-2">
+              <button onClick={onClose} className="btn-secondary flex-1">
+                Done
+              </button>
+              <button
+                onClick={() => {
+                  setParsedItems([]);
+                  setText('');
+                }}
+                className="btn-secondary flex-1"
+              >
+                Import More
               </button>
             </div>
           </div>
