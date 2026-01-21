@@ -123,7 +123,7 @@ export default function MessagesPanel({
     const messageData = {
       trip_id: tripId,
       sender_id: user.id,
-      content: newMessage.trim() || (mediaUrl ? '📷 Photo shared' : ''),
+      content: newMessage.trim(),
       type: 'update' as const,
       is_pinned: false,
     };
@@ -137,12 +137,12 @@ export default function MessagesPanel({
     if (insertError) {
       console.log('[Chat] Insert with media_url failed, trying without:', insertError.message);
 
-      // Update message content to indicate a photo was shared
+      // If there's a photo but no media_url column, show indicator in message
       const { error: retryError } = await supabase.from('trip_messages').insert({
         ...messageData,
-        content: mediaUrl
-          ? `📷 Photo shared${newMessage.trim() ? ': ' + newMessage.trim() : ''}`
-          : messageData.content,
+        content: mediaUrl && !newMessage.trim()
+          ? '📷'
+          : newMessage.trim(),
       });
 
       if (retryError) {
