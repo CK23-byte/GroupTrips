@@ -4,6 +4,7 @@ export interface User {
   email: string;
   name: string;
   avatar_url?: string;
+  profile_photo?: string;
   created_at: string;
 }
 

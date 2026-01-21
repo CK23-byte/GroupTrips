@@ -312,17 +312,30 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function updateProfile(updates: Partial<User>) {
     if (!user) return { error: 'Not authenticated' };
 
-    const { error } = await supabase
-      .from('users')
-      .update(updates)
-      .eq('id', user.id);
+    authLog('updateProfile started', updates);
 
-    if (error) {
-      return { error: error.message };
-    }
+    // Add timeout for profile update
+    const timeoutPromise = new Promise<{ error: string }>((resolve) => {
+      setTimeout(() => resolve({ error: 'Update timed out. Please try again.' }), 10000);
+    });
 
-    setUser({ ...user, ...updates });
-    return { error: null };
+    const updatePromise = (async () => {
+      const { error } = await supabase
+        .from('users')
+        .update(updates)
+        .eq('id', user.id);
+
+      if (error) {
+        authLog('updateProfile error', error);
+        return { error: error.message };
+      }
+
+      authLog('updateProfile success');
+      setUser({ ...user, ...updates });
+      return { error: null };
+    })();
+
+    return Promise.race([updatePromise, timeoutPromise]);
   }
 
   return (

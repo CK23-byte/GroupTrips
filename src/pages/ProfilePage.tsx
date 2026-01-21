@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   User,
@@ -7,6 +7,7 @@ import {
   ChevronLeft,
   Save,
   Plane,
+  Image,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -21,11 +22,70 @@ export default function ProfilePage() {
   const navigate = useNavigate();
   const [name, setName] = useState(user?.name || '');
   const [avatar, setAvatar] = useState(user?.avatar_url || '🧑‍✈️');
+  const [profilePhoto, setProfilePhoto] = useState<string | null>(user?.profile_photo || null);
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
+
+  async function handlePhotoUpload(file: File) {
+    if (!user) return;
+
+    setUploadingPhoto(true);
+    setMessage(null);
+
+    try {
+      const fileExt = file.name.split('.').pop()?.toLowerCase();
+      const fileName = `profiles/${user.id}/${Date.now()}.${fileExt}`;
+
+      console.log('[Profile] Uploading photo:', fileName);
+
+      const { error: uploadError } = await supabase.storage
+        .from('trip-media')
+        .upload(fileName, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('[Profile] Upload error:', uploadError);
+        setMessage({ type: 'error', text: 'Failed to upload photo' });
+        setUploadingPhoto(false);
+        return;
+      }
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('trip-media')
+        .getPublicUrl(fileName);
+
+      console.log('[Profile] Photo uploaded:', publicUrl);
+      setProfilePhoto(publicUrl);
+
+      // Save to profile
+      const { error: updateError } = await updateProfile({ profile_photo: publicUrl });
+      if (updateError) {
+        setMessage({ type: 'error', text: updateError });
+      } else {
+        setMessage({ type: 'success', text: 'Profile photo updated!' });
+      }
+    } catch (err) {
+      console.error('[Profile] Photo upload error:', err);
+      setMessage({ type: 'error', text: 'Failed to upload photo' });
+    }
+
+    setUploadingPhoto(false);
+  }
+
+  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (file) {
+      handlePhotoUpload(file);
+    }
+  }
 
   async function handleUpdateProfile(e: React.FormEvent) {
     e.preventDefault();
@@ -122,19 +182,79 @@ export default function ProfilePage() {
             </h2>
 
             <form onSubmit={handleUpdateProfile} className="space-y-4">
-              {/* Avatar */}
+              {/* Profile Photo */}
               <div className="flex flex-col items-center mb-6">
+                {/* Hidden file inputs */}
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="user"
+                  onChange={handleFileSelect}
+                  className="hidden"
+                />
+
+                {/* Profile photo or emoji avatar */}
+                <div className="relative">
+                  {profilePhoto ? (
+                    <img
+                      src={profilePhoto}
+                      alt="Profile"
+                      className="w-24 h-24 rounded-full object-cover border-4 border-blue-500/30"
+                    />
+                  ) : (
+                    <div className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center text-4xl">
+                      {avatar}
+                    </div>
+                  )}
+                  {uploadingPhoto && (
+                    <div className="absolute inset-0 bg-black/50 rounded-full flex items-center justify-center">
+                      <div className="w-6 h-6 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-sm text-white/50 mt-2">
+                  {profilePhoto ? 'Change your photo' : 'Add a profile photo'}
+                </p>
+
+                {/* Photo upload buttons */}
+                <div className="flex gap-2 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => cameraInputRef.current?.click()}
+                    disabled={uploadingPhoto}
+                    className="flex items-center gap-2 px-3 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-400 rounded-lg text-sm transition-colors disabled:opacity-50"
+                  >
+                    <Camera className="w-4 h-4" />
+                    Camera
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingPhoto}
+                    className="flex items-center gap-2 px-3 py-2 bg-fuchsia-500/20 hover:bg-fuchsia-500/30 text-fuchsia-400 rounded-lg text-sm transition-colors disabled:opacity-50"
+                  >
+                    <Image className="w-4 h-4" />
+                    Gallery
+                  </button>
+                </div>
+
+                {/* Emoji picker toggle */}
                 <button
                   type="button"
                   onClick={() => setShowAvatarPicker(!showAvatarPicker)}
-                  className="w-24 h-24 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center text-4xl hover:scale-105 transition-transform relative"
+                  className="mt-3 text-sm text-white/50 hover:text-white/70"
                 >
-                  {avatar}
-                  <div className="absolute -bottom-1 -right-1 w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-                    <Camera className="w-4 h-4" />
-                  </div>
+                  {profilePhoto ? 'Or use an emoji instead' : 'Or choose an emoji avatar'}
                 </button>
-                <p className="text-sm text-white/50 mt-2">Click to change avatar</p>
 
                 {showAvatarPicker && (
                   <div className="mt-4 p-4 bg-white/5 rounded-xl grid grid-cols-8 gap-2">
@@ -144,10 +264,11 @@ export default function ProfilePage() {
                         type="button"
                         onClick={() => {
                           setAvatar(a);
+                          setProfilePhoto(null); // Clear photo when selecting emoji
                           setShowAvatarPicker(false);
                         }}
                         className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl hover:bg-white/10 transition-colors ${
-                          avatar === a ? 'bg-blue-500/30 ring-2 ring-blue-500' : ''
+                          avatar === a && !profilePhoto ? 'bg-blue-500/30 ring-2 ring-blue-500' : ''
                         }`}
                       >
                         {a}

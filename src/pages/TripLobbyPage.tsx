@@ -296,6 +296,15 @@ export default function TripLobbyPage() {
               icon={<Map className="w-4 h-4" />}
               label="Route"
             />
+            {isAdmin && (
+              <Link
+                to={`/trip/${tripId}/admin`}
+                className="flex items-center gap-2 px-4 py-3 text-sm font-medium text-yellow-400 hover:bg-yellow-500/10 rounded-t-lg transition-colors border-b-2 border-transparent"
+              >
+                <Settings className="w-4 h-4" />
+                Admin
+              </Link>
+            )}
           </nav>
         </div>
       </div>
