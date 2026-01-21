@@ -14,7 +14,6 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signUp: (email: string, password: string, name: string) => Promise<{ error: string | null }>;
   signInWithGoogle: () => Promise<{ error: string | null }>;
-  signInWithApple: () => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<User>) => Promise<{ error: string | null }>;
 }
@@ -274,28 +273,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
-  async function signInWithApple() {
-    authLog('signInWithApple started');
-    try {
-      const { error } = await supabase.auth.signInWithOAuth({
-        provider: 'apple',
-        options: {
-          redirectTo: `${window.location.origin}/dashboard`,
-        },
-      });
-
-      if (error) {
-        authLog('signInWithApple error', error.message);
-        return { error: error.message };
-      }
-      authLog('signInWithApple - redirecting to Apple');
-      return { error: null };
-    } catch (err) {
-      authLog('signInWithApple exception', err);
-      return { error: 'An unexpected error occurred. Please try again.' };
-    }
-  }
-
   async function signOut() {
     authLog('signOut started');
     try {
@@ -346,7 +323,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signIn,
         signUp,
         signInWithGoogle,
-        signInWithApple,
         signOut,
         updateProfile,
       }}

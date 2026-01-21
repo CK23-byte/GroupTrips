@@ -1,7 +1,10 @@
 import { Link } from 'react-router-dom';
-import { Plane, Users, Map, Camera, Clock, Shield, Sparkles } from 'lucide-react';
+import { Plane, Users, Map, Camera, Clock, Shield, Sparkles, User } from 'lucide-react';
+import { useAuth } from '../contexts/AuthContext';
 
 export default function LandingPage() {
+  const { user, loading } = useAuth();
+
   return (
     <div className="min-h-screen">
       {/* Hero Section */}
@@ -12,13 +15,41 @@ export default function LandingPage() {
             <Plane className="w-8 h-8 text-blue-400" />
             <span className="text-2xl font-bold">GroupTrips</span>
           </div>
-          <div className="flex gap-4">
-            <Link to="/login" className="btn-secondary">
-              Log In
-            </Link>
-            <Link to="/register" className="btn-primary">
-              Sign Up
-            </Link>
+          <div className="flex gap-4 items-center">
+            {loading ? (
+              <div className="w-8 h-8 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+            ) : user ? (
+              <>
+                <Link to="/dashboard" className="btn-secondary">
+                  My Trips
+                </Link>
+                <Link
+                  to="/profile"
+                  className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-500 to-fuchsia-500 flex items-center justify-center hover:scale-105 transition-transform"
+                >
+                  {user.profile_photo ? (
+                    <img
+                      src={user.profile_photo}
+                      alt=""
+                      className="w-full h-full rounded-full object-cover"
+                    />
+                  ) : user.avatar_url ? (
+                    <span className="text-lg">{user.avatar_url}</span>
+                  ) : (
+                    <User className="w-5 h-5" />
+                  )}
+                </Link>
+              </>
+            ) : (
+              <>
+                <Link to="/login" className="btn-secondary">
+                  Log In
+                </Link>
+                <Link to="/register" className="btn-primary">
+                  Sign Up
+                </Link>
+              </>
+            )}
           </div>
         </nav>
 
