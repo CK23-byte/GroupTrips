@@ -28,6 +28,8 @@ export default function MessagesPanel({
   const [sending, setSending] = useState(false);
   const [mediaFile, setMediaFile] = useState<File | null>(null);
   const [mediaPreview, setMediaPreview] = useState<string | null>(null);
+  const [saveToGallery, setSaveToGallery] = useState(true);
+  const [uploadError, setUploadError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -63,6 +65,7 @@ export default function MessagesPanel({
     if ((!newMessage.trim() && !mediaFile) || !user) return;
 
     setSending(true);
+    setUploadError('');
 
     let mediaUrl: string | null = null;
 
@@ -70,30 +73,85 @@ export default function MessagesPanel({
     if (mediaFile) {
       const fileExt = mediaFile.name.split('.').pop()?.toLowerCase();
       const fileName = `${tripId}/chat/${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+      const isVideo = mediaFile.type.startsWith('video/');
 
-      const { error: uploadError, data: uploadData } = await supabase.storage
+      console.log('[Chat] Uploading media file:', fileName);
+
+      const { error: storageError, data: uploadData } = await supabase.storage
         .from('trip-media')
         .upload(fileName, mediaFile, {
           cacheControl: '3600',
           upsert: false
         });
 
-      if (!uploadError && uploadData) {
+      if (storageError) {
+        console.error('[Chat] Storage upload error:', storageError);
+        setUploadError('Failed to upload media. Please try again.');
+        setSending(false);
+        return;
+      }
+
+      if (uploadData) {
         const { data: { publicUrl } } = supabase.storage
           .from('trip-media')
           .getPublicUrl(fileName);
         mediaUrl = publicUrl;
+        console.log('[Chat] Media uploaded successfully:', publicUrl);
+
+        // Also save to media gallery if checkbox is checked
+        if (saveToGallery) {
+          console.log('[Chat] Saving to media gallery...');
+          const { error: mediaError } = await supabase.from('trip_media').insert({
+            trip_id: tripId,
+            uploaded_by: user.id,
+            file_url: publicUrl,
+            type: isVideo ? 'video' : 'photo',
+            caption: newMessage.trim() || undefined,
+          });
+
+          if (mediaError) {
+            console.error('[Chat] Error saving to media gallery:', mediaError);
+            // Don't fail the whole operation, just log the error
+          } else {
+            console.log('[Chat] Saved to media gallery');
+          }
+        }
       }
     }
 
-    await supabase.from('trip_messages').insert({
+    // Insert message - try with media_url first, fall back without if it fails
+    const messageData = {
       trip_id: tripId,
       sender_id: user.id,
-      content: newMessage.trim() || (mediaUrl ? '📷' : ''),
-      type: 'update',
+      content: newMessage.trim(),
+      type: 'update' as const,
       is_pinned: false,
+    };
+
+    let { error: insertError } = await supabase.from('trip_messages').insert({
+      ...messageData,
       media_url: mediaUrl,
     });
+
+    // If insert fails (likely due to missing media_url column), try without it
+    if (insertError) {
+      console.log('[Chat] Insert with media_url failed, trying without:', insertError.message);
+
+      // If there's a photo but no media_url column, show indicator in message
+      const { error: retryError } = await supabase.from('trip_messages').insert({
+        ...messageData,
+        content: mediaUrl && !newMessage.trim()
+          ? '📷'
+          : newMessage.trim(),
+      });
+
+      if (retryError) {
+        console.error('[Chat] Message insert failed:', retryError);
+        setUploadError('Failed to send message. Please try again.');
+        setSending(false);
+        return;
+      }
+    }
 
     setNewMessage('');
     clearMedia();
@@ -135,21 +193,40 @@ export default function MessagesPanel({
 
       {/* Message Input */}
       <form onSubmit={handleSend} className="card p-3 sm:p-4">
+        {/* Error message */}
+        {uploadError && (
+          <div className="mb-3 p-2 bg-red-500/20 border border-red-500/50 rounded-lg text-red-200 text-sm">
+            {uploadError}
+          </div>
+        )}
+
         {/* Media Preview */}
         {mediaPreview && (
-          <div className="mb-3 relative inline-block">
-            <img
-              src={mediaPreview}
-              alt="Preview"
-              className="h-16 w-16 sm:h-20 sm:w-20 object-cover rounded-lg"
-            />
-            <button
-              type="button"
-              onClick={clearMedia}
-              className="absolute -top-2 -right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
-            >
-              <X className="w-3 h-3" />
-            </button>
+          <div className="mb-3">
+            <div className="relative inline-block">
+              <img
+                src={mediaPreview}
+                alt="Preview"
+                className="h-16 w-16 sm:h-20 sm:w-20 object-cover rounded-lg"
+              />
+              <button
+                type="button"
+                onClick={clearMedia}
+                className="absolute -top-2 -right-2 p-1 bg-red-500 rounded-full hover:bg-red-600 transition-colors"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+            {/* Save to Gallery checkbox */}
+            <label className="flex items-center gap-2 mt-2 text-sm text-white/70 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={saveToGallery}
+                onChange={(e) => setSaveToGallery(e.target.checked)}
+                className="w-4 h-4 rounded border-white/30 bg-white/10 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+              />
+              Also save to Media gallery
+            </label>
           </div>
         )}
 

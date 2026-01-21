@@ -1414,24 +1414,90 @@ function AIImportModal({
   }
 
   async function handleAddItem(item: ParsedItem, index: number) {
-    if (adding !== null) return;
+    if (adding !== null) {
+      console.log('[AIImport] Already adding an item, ignoring click');
+      return;
+    }
     setAdding(index);
+    setError('');
+
+    // Map type to valid schedule item type
+    const typeMap: Record<string, string> = {
+      accommodation: 'accommodation',
+      travel: 'travel',
+      activity: 'activity',
+      meal: 'meal',
+      meeting: 'meeting',
+    };
+    const scheduleType = typeMap[item.type] || 'activity';
+
+    console.log('[AIImport] Adding item:', {
+      title: item.title,
+      type: scheduleType,
+      start_time: item.start_time,
+      end_time: item.end_time,
+    });
+
+    const insertData = {
+      trip_id: tripId,
+      title: item.title,
+      type: scheduleType,
+      start_time: item.start_time,
+      end_time: item.end_time || null,
+      location: item.location || null,
+      description: item.description || null,
+      reservation_code: item.booking_reference || null,
+    };
+
+    // Retry logic with exponential backoff
+    const maxRetries = 3;
+    const baseDelay = 2000;
+
+    async function attemptInsert(attempt: number): Promise<{ error: { message: string } | null }> {
+      const timeoutMs = 20000 + (attempt * 5000);
+      const insertPromise = supabase.from('schedule_items').insert(insertData);
+      const timeoutPromise = new Promise<{ error: { message: string } }>((_, reject) => {
+        setTimeout(() => reject(new Error(`Insert timed out after ${timeoutMs / 1000} seconds`)), timeoutMs);
+      });
+      return Promise.race([insertPromise, timeoutPromise]);
+    }
 
     try {
-      const { error: insertError } = await supabase.from('schedule_items').insert({
-        trip_id: tripId,
-        title: item.title,
-        type: item.type,
-        start_time: item.start_time,
-        end_time: item.end_time || null,
-        location: item.location || null,
-        description: item.description || null,
-        reservation_code: item.booking_reference || null,
-      });
+      let lastError: { message: string } | null = null;
 
-      if (insertError) {
-        console.error('[AIImport] Insert error:', insertError);
-        setError(`Failed to add: ${insertError.message}`);
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
+        try {
+          if (attempt > 0) {
+            const delay = baseDelay * Math.pow(2, attempt - 1);
+            console.log(`[AIImport] Retry attempt ${attempt + 1}/${maxRetries} after ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+
+          console.log('[AIImport] Starting Supabase insert...');
+          const { error: insertError } = await attemptInsert(attempt);
+
+          if (!insertError) {
+            console.log('[AIImport] Insert succeeded');
+            lastError = null;
+            break;
+          }
+
+          if (insertError.message.includes('timed out') || insertError.message.includes('network')) {
+            console.log('[AIImport] Network/timeout error, will retry:', insertError.message);
+            lastError = insertError;
+          } else {
+            lastError = insertError;
+            break;
+          }
+        } catch (err) {
+          console.log('[AIImport] Attempt failed with error:', err);
+          lastError = { message: err instanceof Error ? err.message : 'Unknown error' };
+        }
+      }
+
+      if (lastError) {
+        console.error('[AIImport] All insert attempts failed:', lastError);
+        setError(`Failed to add: ${lastError.message}. Please check your connection and try again.`);
         setAdding(null);
         return;
       }
@@ -1445,7 +1511,7 @@ function AIImportModal({
       }
     } catch (err) {
       console.error('[AIImport] Unexpected error:', err);
-      setError('An unexpected error occurred');
+      setError('An unexpected error occurred. Please try again.');
       setAdding(null);
     }
   }
