@@ -1,12 +1,22 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import Stripe from 'stripe';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '');
-
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
+
+  // Check for Stripe API key before initializing
+  const stripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  if (!stripeSecretKey) {
+    console.error('[create-checkout] STRIPE_SECRET_KEY is not configured');
+    return res.status(500).json({
+      error: 'Payment system unavailable - Stripe not configured',
+      details: 'STRIPE_SECRET_KEY environment variable is missing'
+    });
+  }
+
+  const stripe = new Stripe(stripeSecretKey);
 
   try {
     const { tripName, userId, successUrl, cancelUrl, groupName, description, departureTime, returnTime } = req.body;

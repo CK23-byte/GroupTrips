@@ -737,11 +737,22 @@ function ActivityDetailModal({
   const [contactInfo, setContactInfo] = useState(activity.contact_info || '');
   const [estimatedCost, setEstimatedCost] = useState(activity.estimated_cost?.toString() || '');
   const [type, setType] = useState<ScheduleItem['type']>(activity.type);
+  // Format datetime for datetime-local input (must be in local time, not UTC)
+  function formatDateTimeLocal(isoString: string): string {
+    const date = new Date(isoString);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  }
+
   const [startTime, setStartTime] = useState(
-    new Date(activity.start_time).toISOString().slice(0, 16)
+    formatDateTimeLocal(activity.start_time)
   );
   const [endTime, setEndTime] = useState(
-    activity.end_time ? new Date(activity.end_time).toISOString().slice(0, 16) : ''
+    activity.end_time ? formatDateTimeLocal(activity.end_time) : ''
   );
 
   const displayStartTime = new Date(activity.start_time);
