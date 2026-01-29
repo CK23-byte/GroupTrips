@@ -279,10 +279,12 @@ export default function ProfilePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-white/70 mb-2">
+                <label htmlFor="profile-name" className="block text-sm font-medium text-white/70 mb-2">
                   Full Name
                 </label>
                 <input
+                  id="profile-name"
+                  name="name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -292,15 +294,19 @@ export default function ProfilePage() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-white/70 mb-2">
+                <label htmlFor="profile-email" className="block text-sm font-medium text-white/70 mb-2">
                   Email
                 </label>
                 <input
+                  id="profile-email"
+                  name="email"
                   type="email"
                   value={user?.email || ''}
                   disabled
                   className="input-field opacity-50 cursor-not-allowed"
+                  aria-describedby="email-hint"
                 />
+                <p id="email-hint" className="text-xs text-white/40 mt-1">Email cannot be changed</p>
               </div>
 
               <button
@@ -323,30 +329,36 @@ export default function ProfilePage() {
 
             <form onSubmit={handleChangePassword} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-white/70 mb-2">
+                <label htmlFor="profile-new-password" className="block text-sm font-medium text-white/70 mb-2">
                   New Password
                 </label>
                 <input
+                  id="profile-new-password"
+                  name="newPassword"
                   type="password"
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                   className="input-field"
                   placeholder="••••••••"
                   minLength={6}
+                  autoComplete="new-password"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-white/70 mb-2">
+                <label htmlFor="profile-confirm-password" className="block text-sm font-medium text-white/70 mb-2">
                   Confirm New Password
                 </label>
                 <input
+                  id="profile-confirm-password"
+                  name="confirmPassword"
                   type="password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   className="input-field"
                   placeholder="••••••••"
                   minLength={6}
+                  autoComplete="new-password"
                 />
               </div>
 

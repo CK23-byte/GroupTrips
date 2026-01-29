@@ -154,10 +154,12 @@ export default function RegisterPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
+              <label htmlFor="register-name" className="block text-sm font-medium text-white/70 mb-2">
                 Name
               </label>
               <input
+                id="register-name"
+                name="name"
                 type="text"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
@@ -169,10 +171,12 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
+              <label htmlFor="register-email" className="block text-sm font-medium text-white/70 mb-2">
                 Email
               </label>
               <input
+                id="register-email"
+                name="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
@@ -184,11 +188,13 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
+              <label htmlFor="register-password" className="block text-sm font-medium text-white/70 mb-2">
                 Password
               </label>
               <div className="relative">
                 <input
+                  id="register-password"
+                  name="password"
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
@@ -201,6 +207,7 @@ export default function RegisterPage() {
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-4 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
                 >
                   {showPassword ? (
                     <EyeOff className="w-5 h-5" />
@@ -212,10 +219,12 @@ export default function RegisterPage() {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
+              <label htmlFor="register-confirm-password" className="block text-sm font-medium text-white/70 mb-2">
                 Confirm Password
               </label>
               <input
+                id="register-confirm-password"
+                name="confirmPassword"
                 type={showPassword ? 'text' : 'password'}
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}

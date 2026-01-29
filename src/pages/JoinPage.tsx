@@ -67,12 +67,14 @@ export default function JoinPage() {
 
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-white/70 mb-2">
+              <label htmlFor="join-lobby-code" className="block text-sm font-medium text-white/70 mb-2">
                 Lobby Code
               </label>
               <div className="relative">
-                <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" />
+                <Hash className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/30" aria-hidden="true" />
                 <input
+                  id="join-lobby-code"
+                  name="lobbyCode"
                   type="text"
                   value={lobbyCode}
                   onChange={(e) => handleCodeChange(e.target.value)}
@@ -80,8 +82,10 @@ export default function JoinPage() {
                   placeholder="ABC123"
                   maxLength={6}
                   required
+                  aria-describedby="lobby-code-hint"
                 />
               </div>
+              <p id="lobby-code-hint" className="sr-only">Enter the 6-character lobby code shared by the trip admin</p>
             </div>
 
             <button
