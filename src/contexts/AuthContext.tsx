@@ -303,9 +303,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     authLog('updateProfile started', updates);
 
-    // Add timeout for profile update
+    // Optimistically update UI immediately
+    const previousUser = user;
+    setUser({ ...user, ...updates });
+
+    // Shorter timeout - 3 seconds max
     const timeoutPromise = new Promise<{ error: string }>((resolve) => {
-      setTimeout(() => resolve({ error: 'Update timed out. Please try again.' }), 10000);
+      setTimeout(() => resolve({ error: 'Update timed out. Please try again.' }), 3000);
     });
 
     const updatePromise = (async () => {
@@ -316,15 +320,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       if (error) {
         authLog('updateProfile error', error);
+        // Revert optimistic update on error
+        setUser(previousUser);
         return { error: error.message };
       }
 
       authLog('updateProfile success');
-      setUser({ ...user, ...updates });
       return { error: null };
     })();
 
-    return Promise.race([updatePromise, timeoutPromise]);
+    const result = await Promise.race([updatePromise, timeoutPromise]);
+
+    // If timeout, revert optimistic update
+    if (result.error === 'Update timed out. Please try again.') {
+      setUser(previousUser);
+    }
+
+    return result;
   }
 
   return (

@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import {
   Plus,
   Plane,
@@ -11,6 +11,9 @@ import {
   Copy,
   Check,
   CreditCard,
+  Loader2,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase, generateLobbyCode } from '../lib/supabase';
@@ -26,126 +29,318 @@ export default function DashboardPage() {
   const { user, loading: authLoading } = useAuth();
   const { signOut } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [trips, setTrips] = useState<(Trip & { members: TripMember[] })[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [paymentReturnDetected, setPaymentReturnDetected] = useState(false);
-  const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null);
 
-  // Check for payment return on mount and when user becomes available
+  // Payment verification state (separate from create modal)
+  const [isVerifyingPayment, setIsVerifyingPayment] = useState(false);
+  const [paymentError, setPaymentError] = useState<string | null>(null);
+  const hasProcessedPayment = useRef(false);
+
+  // Check for payment return on mount
   useEffect(() => {
-    // Only proceed if we haven't already detected payment return
-    if (paymentReturnDetected) return;
+    const params = new URLSearchParams(location.search);
+    const paymentSuccess = params.get('payment') === 'success';
+    const sessionId = params.get('session_id');
+    const paymentCancelled = params.get('payment') === 'cancelled';
 
-    const urlParams = new URLSearchParams(window.location.search);
-    const paymentStatus = urlParams.get('payment');
-    const sessionId = urlParams.get('session_id');
-    // Use localStorage instead of sessionStorage (more persistent across redirects)
-    const savedTripData = localStorage.getItem('pendingTripData');
-    const pendingPayment = localStorage.getItem('pendingPayment');
-
-    debugLog('Dashboard', 'Payment check', {
-      paymentStatus,
-      sessionId: sessionId ? `${sessionId.slice(0, 20)}...` : null,
-      hasSavedTripData: !!savedTripData,
-      savedTripDataPreview: savedTripData?.slice(0, 100),
-      pendingPayment,
-      url: window.location.href,
-      hasUser: !!user,
+    debugLog('Dashboard', 'Component mounted', {
+      user: user?.id,
+      hasPaymentParam: paymentSuccess,
+      hasSessionId: !!sessionId,
+      paymentCancelled,
     });
 
-    // If returning from payment with session_id, we can retrieve trip data from Stripe
-    if (paymentStatus === 'success' && sessionId) {
-      debugLog('Dashboard', 'Payment return with session_id - will verify via API');
-      setPaymentSessionId(sessionId);
-      setPaymentReturnDetected(true);
-      setShowCreateModal(true);
-    }
-    // Payment Link flow: no session_id but payment=success
-    // Try to use localStorage trip data, or verify via userId fallback
-    else if (paymentStatus === 'success' || pendingPayment === 'true') {
-      debugLog('Dashboard', 'Payment return detected - opening modal for verification');
-      setPaymentReturnDetected(true);
-      setShowCreateModal(true);
-      // Modal will handle verification using localStorage or userId fallback
-    } else if (paymentStatus === 'cancelled') {
+    // Handle cancelled payment
+    if (paymentCancelled) {
       debugLog('Dashboard', 'Payment cancelled');
-      window.history.replaceState({}, '', window.location.pathname);
+      window.history.replaceState({}, '', '/dashboard');
       localStorage.removeItem('pendingPayment');
+      localStorage.removeItem('pendingTripData');
+      return;
     }
-  }, [user, paymentReturnDetected]);
 
-  useEffect(() => {
-    if (user) {
-      loadTrips();
+    // Handle successful payment
+    if (paymentSuccess && user?.id && !hasProcessedPayment.current) {
+      hasProcessedPayment.current = true;
+      handlePaymentVerification(sessionId);
     }
-  }, [user]);
+  }, [user, location.search]);
+
+  // Load trips when user is available
+  useEffect(() => {
+    if (user && !isVerifyingPayment) {
+      loadTripsWithRetry();
+    }
+  }, [user, isVerifyingPayment]);
+
+  async function handlePaymentVerification(sessionId: string | null) {
+    debugLog('Dashboard', 'Starting payment verification', { sessionId: sessionId ? 'present' : 'null' });
+
+    // Clean URL immediately
+    window.history.replaceState({}, '', '/dashboard');
+
+    // Show loading overlay
+    setIsVerifyingPayment(true);
+    setPaymentError(null);
+
+    try {
+      const requestBody = sessionId
+        ? { sessionId }
+        : { userId: user?.id };
+
+      debugLog('Dashboard', 'Calling verify-payment API', requestBody);
+
+      const response = await fetch('/api/verify-payment', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      const data = await response.json();
+      debugLog('Dashboard', 'Payment verification response', data);
+
+      // Clear localStorage
+      localStorage.removeItem('pendingTripData');
+      localStorage.removeItem('pendingPayment');
+
+      if (data.success && data.tripCreated && data.tripId) {
+        debugLog('Dashboard', 'Trip created successfully, navigating to trip', data.tripId);
+        navigate(`/trip/${data.tripId}`);
+        return;
+      }
+
+      if (data.paymentVerified && !data.tripCreated) {
+        // Payment verified but trip creation failed - try client-side fallback
+        debugLog('Dashboard', 'Payment verified but trip not created, trying fallback');
+        await tryClientSideTripCreation();
+        return;
+      }
+
+      // Payment verification failed
+      throw new Error(data.error || 'Payment verification failed');
+
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : 'Payment verification failed';
+      debugLog('Dashboard', 'Payment verification error', errorMsg);
+      setPaymentError(errorMsg);
+      setIsVerifyingPayment(false);
+    }
+  }
+
+  async function tryClientSideTripCreation() {
+    debugLog('Dashboard', 'Attempting client-side trip creation');
+
+    const savedTripData = localStorage.getItem('pendingTripData');
+
+    if (!savedTripData) {
+      // Check Supabase pending_trips
+      if (user?.id) {
+        const { data: pendingTrip } = await supabase
+          .from('pending_trips')
+          .select('*')
+          .eq('user_id', user.id)
+          .single();
+
+        if (pendingTrip) {
+          await createTrip({
+            name: pendingTrip.name,
+            groupName: pendingTrip.group_name || '',
+            description: pendingTrip.description || '',
+            departureTime: pendingTrip.departure_time,
+            returnTime: pendingTrip.return_time,
+          });
+          return;
+        }
+      }
+
+      setPaymentError('Payment was successful but trip data was lost. Please contact support with your payment confirmation.');
+      setIsVerifyingPayment(false);
+      return;
+    }
+
+    try {
+      const tripData = JSON.parse(savedTripData);
+      localStorage.removeItem('pendingTripData');
+      await createTrip(tripData);
+    } catch (err) {
+      debugLog('Dashboard', 'Failed to parse trip data', err);
+      setPaymentError('Failed to create trip. Please contact support.');
+      setIsVerifyingPayment(false);
+    }
+  }
+
+  async function createTrip(tripData: { name: string; groupName?: string; description: string; departureTime: string; returnTime?: string }) {
+    if (!user) {
+      setPaymentError('User not logged in. Please refresh and try again.');
+      setIsVerifyingPayment(false);
+      return;
+    }
+
+    try {
+      const departureDateObj = new Date(tripData.departureTime);
+      if (isNaN(departureDateObj.getTime())) {
+        throw new Error('Invalid departure date');
+      }
+
+      let returnDateObj: Date | null = null;
+      if (tripData.returnTime) {
+        returnDateObj = new Date(tripData.returnTime);
+        if (isNaN(returnDateObj.getTime())) {
+          returnDateObj = null;
+        }
+      }
+
+      const lobbyCode = generateLobbyCode();
+
+      const { data: trip, error: tripError } = await supabase
+        .from('trips')
+        .insert({
+          name: tripData.name,
+          group_name: tripData.groupName || null,
+          description: tripData.description || null,
+          lobby_code: lobbyCode,
+          admin_id: user.id,
+          departure_time: departureDateObj.toISOString(),
+          return_time: returnDateObj?.toISOString() || null,
+          status: 'planning',
+        })
+        .select()
+        .single();
+
+      if (tripError) throw tripError;
+
+      // Add creator as admin member
+      await supabase.from('trip_members').insert({
+        trip_id: trip.id,
+        user_id: user.id,
+        role: 'admin',
+      });
+
+      debugLog('Dashboard', 'Trip created successfully', trip.id);
+      navigate(`/trip/${trip.id}`);
+
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : 'Unknown error';
+      debugLog('Dashboard', 'Trip creation error', errMsg);
+      setPaymentError(`Failed to create trip: ${errMsg}`);
+      setIsVerifyingPayment(false);
+    }
+  }
+
+  async function loadTripsWithRetry(retries = 2) {
+    for (let i = 0; i <= retries; i++) {
+      try {
+        await loadTrips();
+        return; // Success
+      } catch (error) {
+        debugLog('loadTrips', `Attempt ${i + 1} failed`, error);
+        if (i === retries) {
+          setLoadError('Unable to load trips. Please check your connection and try again.');
+        } else {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
+  }
 
   async function loadTrips() {
     if (!user?.id) {
-      debugLog('loadTrips', 'No user or user.id, skipping');
+      debugLog('loadTrips', 'No user ID, skipping');
       setLoading(false);
       return;
     }
 
-    debugLog('loadTrips', 'Loading trips for user', user.id);
+    debugLog('loadTrips', 'Starting query', { userId: user.id, timestamp: new Date().toISOString() });
+    setLoading(true);
+    setLoadError(null);
 
-    // Use AbortController-style timeout with flag
-    let timedOut = false;
-    const timeoutId = setTimeout(() => {
-      timedOut = true;
-      debugLog('loadTrips', 'Query timed out after 5s');
-    }, 5000);
+    // Shorter timeout - fail fast
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000); // 3s max
 
     try {
+      // Optimized single query using trip_members join
       const { data: memberData, error: memberError } = await supabase
         .from('trip_members')
-        .select('trip_id')
-        .eq('user_id', user.id);
+        .select(`
+          trip_id,
+          role,
+          trips!inner (
+            id,
+            name,
+            destination,
+            departure_time,
+            return_time,
+            lobby_code,
+            status,
+            cover_image_url,
+            group_name,
+            created_at
+          )
+        `)
+        .eq('user_id', user.id)
+        .order('created_at', { referencedTable: 'trips', ascending: false });
 
-      if (timedOut) {
-        debugLog('loadTrips', 'Query completed after timeout, ignoring');
-        return;
-      }
       clearTimeout(timeoutId);
 
-      debugLog('loadTrips', 'Member data', { count: memberData?.length, error: memberError?.message });
-
       if (memberError) {
-        console.error('[loadTrips] Error fetching memberships:', memberError);
-        // Still continue to show empty state rather than error
+        console.error('[loadTrips] Query error:', memberError);
+        throw memberError;
+      }
+
+      if (!memberData || memberData.length === 0) {
+        debugLog('loadTrips', 'No trips found');
+        setTrips([]);
+        setLoading(false);
         return;
       }
 
-      if (memberData && memberData.length > 0) {
-        const tripIds = memberData.map((m: { trip_id: string }) => m.trip_id);
-        debugLog('loadTrips', 'Fetching trips for IDs:', tripIds);
+      // Extract trips and add member count
+      const tripsWithMembers = memberData.map(m => {
+        const trip = m.trips as unknown as Trip;
+        return {
+          ...trip,
+          members: [] as TripMember[], // Will fetch member counts separately if needed
+        };
+      });
 
-        const { data: tripsData, error: tripsError } = await supabase
-          .from('trips')
-          .select('*, members:trip_members(*)')
-          .in('id', tripIds)
-          .order('departure_time', { ascending: true });
+      // Deduplicate by trip ID (in case of multiple memberships)
+      const uniqueTrips = tripsWithMembers.filter((trip, index, self) =>
+        index === self.findIndex(t => t.id === trip.id)
+      );
 
-        debugLog('loadTrips', 'Trips result', { count: tripsData?.length, error: tripsError?.message });
+      // Fetch member counts for all trips in parallel
+      const tripIds = uniqueTrips.map(t => t.id);
+      const { data: allMembers } = await supabase
+        .from('trip_members')
+        .select('trip_id')
+        .in('trip_id', tripIds);
 
-        if (tripsError) {
-          console.error('[loadTrips] Error fetching trips:', tripsError);
-        } else if (tripsData) {
-          setTrips(tripsData as (Trip & { members: TripMember[] })[]);
-          debugLog('loadTrips', 'Successfully loaded trips:', tripsData.length);
-        }
-      } else {
-        debugLog('loadTrips', 'No memberships found - user has no trips');
-        setTrips([]);
-      }
+      // Count members per trip
+      const memberCounts: Record<string, number> = {};
+      allMembers?.forEach(m => {
+        memberCounts[m.trip_id] = (memberCounts[m.trip_id] || 0) + 1;
+      });
+
+      // Add member counts to trips
+      const tripsWithCounts = uniqueTrips.map(trip => ({
+        ...trip,
+        members: Array(memberCounts[trip.id] || 1).fill({}) as TripMember[],
+      }));
+
+      debugLog('loadTrips', 'Success', { count: tripsWithCounts.length });
+      setTrips(tripsWithCounts);
+
     } catch (err) {
       clearTimeout(timeoutId);
       const errMsg = err instanceof Error ? err.message : String(err);
-      console.error('[loadTrips] Unexpected error:', errMsg);
-      debugLog('loadTrips', 'Error (possibly timeout)', errMsg);
+      console.error('[loadTrips] Error:', errMsg);
+      throw err;
     } finally {
-      // Always reset loading state
       setLoading(false);
     }
   }
@@ -174,8 +369,46 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen">
+      {/* Payment Verification Overlay - NOT a modal, full screen overlay */}
+      {isVerifyingPayment && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-slate-800 border border-white/10 p-8 rounded-2xl text-center max-w-md mx-4">
+            <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4 text-blue-500" />
+            <h3 className="text-xl font-bold text-white mb-2">Creating Your Trip...</h3>
+            <p className="text-white/70">Please wait while we set everything up</p>
+          </div>
+        </div>
+      )}
+
+      {/* Payment Error Overlay */}
+      {paymentError && !isVerifyingPayment && (
+        <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-sm z-50 flex items-center justify-center">
+          <div className="bg-slate-800 border border-red-500/30 p-8 rounded-2xl text-center max-w-md mx-4">
+            <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
+              <AlertCircle className="w-8 h-8 text-red-400" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Payment Issue</h3>
+            <p className="text-red-400 mb-6">{paymentError}</p>
+            <div className="flex gap-3 justify-center">
+              <button
+                onClick={() => setPaymentError(null)}
+                className="btn-secondary"
+              >
+                Close
+              </button>
+              <a
+                href="mailto:support@grouptrips.io"
+                className="btn-primary"
+              >
+                Contact Support
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
-      <header className="border-b border-white/10 bg-white/5 backdrop-blur-lg sticky top-0 z-50">
+      <header className="border-b border-white/10 bg-white/5 backdrop-blur-lg sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2">
             <Plane className="w-8 h-8 text-blue-400" />
@@ -226,6 +459,23 @@ export default function DashboardPage() {
           </div>
         </div>
 
+        {/* Load Error */}
+        {loadError && (
+          <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <AlertCircle className="w-5 h-5 text-red-400 flex-shrink-0" />
+              <span className="text-red-200">{loadError}</span>
+            </div>
+            <button
+              onClick={() => loadTripsWithRetry()}
+              className="flex items-center gap-2 px-3 py-1.5 bg-red-500/30 hover:bg-red-500/40 text-red-200 rounded-lg text-sm transition-colors"
+            >
+              <RefreshCw className="w-4 h-4" />
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Trips Grid */}
         {loading || authLoading ? (
           <div className="text-center py-12">
@@ -263,19 +513,11 @@ export default function DashboardPage() {
       {/* Create Trip Modal */}
       {showCreateModal && (
         <CreateTripModal
-          onClose={() => {
-            setShowCreateModal(false);
-            setPaymentReturnDetected(false);
-            setPaymentSessionId(null);
-          }}
+          onClose={() => setShowCreateModal(false)}
           onCreated={() => {
             setShowCreateModal(false);
-            setPaymentReturnDetected(false);
-            setPaymentSessionId(null);
-            loadTrips();
+            loadTripsWithRetry();
           }}
-          isPaymentReturn={paymentReturnDetected}
-          sessionId={paymentSessionId}
         />
       )}
     </div>
@@ -334,16 +576,12 @@ function TripCard({
 function CreateTripModal({
   onClose,
   onCreated,
-  isPaymentReturn,
-  sessionId,
 }: {
   onClose: () => void;
   onCreated: () => void;
-  isPaymentReturn: boolean;
-  sessionId: string | null;
 }) {
   const { user } = useAuth();
-  const [step, setStep] = useState<'details' | 'payment' | 'creating' | 'success'>('details');
+  const [step, setStep] = useState<'details' | 'payment' | 'success'>('details');
   const [name, setName] = useState('');
   const [groupName, setGroupName] = useState('');
   const [description, setDescription] = useState('');
@@ -355,272 +593,16 @@ function CreateTripModal({
   const [error, setError] = useState('');
   const [createdTrip, setCreatedTrip] = useState<Trip | null>(null);
   const [copied, setCopied] = useState(false);
-  const hasProcessedPayment = useRef(false);
 
-  // Add debug info (console only)
+  // Suppress unused variable warnings - these are used in success state
+  void onCreated;
+  void createdTrip;
+  void setCreatedTrip;
+  void copied;
+  void setCopied;
+
   function addDebug(msg: string) {
     debugLog('CreateTripModal', msg);
-  }
-
-  // Check for payment success on mount
-  useEffect(() => {
-    addDebug(`Modal mounted. isPaymentReturn=${isPaymentReturn}, sessionId=${sessionId ? 'present' : 'null'}, user=${user?.id || 'null'}, hasProcessed=${hasProcessedPayment.current}`);
-
-    // If not a payment return, don't do anything special
-    if (!isPaymentReturn) {
-      addDebug('Not a payment return, showing details form');
-      return;
-    }
-
-    // Prevent double processing
-    if (hasProcessedPayment.current) {
-      addDebug('Already processed payment, skipping');
-      return;
-    }
-
-    // Wait for user to be loaded
-    if (!user) {
-      addDebug('User not loaded yet, waiting...');
-      return;
-    }
-
-    // Mark as processed
-    hasProcessedPayment.current = true;
-
-    // Clear URL params immediately
-    window.history.replaceState({}, '', window.location.pathname);
-
-    // Show creating state
-    setStep('creating');
-    setLoading(true);
-
-    // Call verify-payment API which now creates the trip server-side
-    const requestBody = sessionId
-      ? { sessionId }
-      : { userId: user.id };
-
-    addDebug(`Verifying payment and creating trip... ${JSON.stringify(requestBody)}`);
-
-    fetch('/api/verify-payment', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-    })
-      .then(res => res.json())
-      .then(data => {
-        addDebug(`API response: ${JSON.stringify(data)}`);
-
-        // Clear localStorage regardless of outcome
-        localStorage.removeItem('pendingTripData');
-        localStorage.removeItem('pendingPayment');
-
-        if (data.success && data.tripCreated) {
-          // Trip was created server-side! Show success and redirect
-          addDebug(`Trip created successfully! ID: ${data.tripId}, Code: ${data.lobbyCode}`);
-
-          // Create a minimal trip object for the success screen
-          const createdTripData = {
-            id: data.tripId,
-            lobby_code: data.lobbyCode,
-            name: data.tripName || 'Your Trip',
-          } as Trip;
-
-          setCreatedTrip(createdTripData);
-          setStep('success');
-          setLoading(false);
-        } else if (data.paymentVerified) {
-          // Payment was verified but trip creation failed
-          addDebug('Payment verified but trip creation failed, trying client-side fallback');
-          tryClientSideTripCreation();
-        } else {
-          // Payment verification failed
-          addDebug(`Payment verification failed: ${data.error}`);
-          setError(data.error || 'Could not verify payment. If you paid, please contact support.');
-          setStep('details');
-          setLoading(false);
-        }
-      })
-      .catch(err => {
-        addDebug(`API error: ${err}`);
-        // Try client-side fallback
-        tryClientSideTripCreation();
-      });
-
-    async function tryClientSideTripCreation() {
-      addDebug('Attempting client-side trip creation as fallback...');
-
-      // Try to get trip data from localStorage
-      const savedTripData = localStorage.getItem('pendingTripData');
-
-      if (!savedTripData) {
-        // Also try Supabase pending_trips
-        if (user?.id) {
-          const { data: pendingTrip, error: fetchError } = await supabase
-            .from('pending_trips')
-            .select('*')
-            .eq('user_id', user.id)
-            .single();
-
-          if (!fetchError && pendingTrip) {
-            addDebug('Found pending trip in Supabase');
-            const tripData = {
-              name: pendingTrip.name,
-              groupName: pendingTrip.group_name || '',
-              description: pendingTrip.description || '',
-              departureTime: pendingTrip.departure_time,
-              returnTime: pendingTrip.return_time,
-            };
-            createTripAfterPayment(tripData);
-            return;
-          }
-        }
-
-        addDebug('No pending trip data found anywhere');
-        setError('Payment was successful but trip data was lost. Please contact support with your payment confirmation.');
-        setStep('details');
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const tripData = JSON.parse(savedTripData);
-        addDebug(`Creating trip from localStorage: ${tripData.name}`);
-        localStorage.removeItem('pendingTripData');
-        localStorage.removeItem('pendingPayment');
-        createTripAfterPayment(tripData);
-      } catch (err) {
-        addDebug(`Failed to parse trip data: ${err}`);
-        setError('Failed to create trip. Please contact support.');
-        setStep('details');
-        setLoading(false);
-      }
-    }
-  }, [isPaymentReturn, sessionId, user]);
-
-  async function createTripAfterPayment(tripData: { name: string; groupName?: string; description: string; departureTime: string; returnTime?: string }) {
-    addDebug('createTripAfterPayment called');
-
-    if (!user) {
-      addDebug('ERROR: No user available');
-      setError('User not logged in. Please refresh and try again.');
-      setStep('details');
-      return;
-    }
-
-    setLoading(true);
-    setError('');
-
-    // Flag-based timeout to prevent indefinite hanging
-    let timedOut = false;
-    const timeoutId = setTimeout(() => {
-      if (!timedOut) {
-        timedOut = true;
-        addDebug('TIMEOUT: Trip creation timed out after 15s');
-        setError('Database connection timed out. Please check your internet connection and try again. If the problem persists, there may be an issue with the database configuration.');
-        setStep('details');
-        setLoading(false);
-      }
-    }, 15000); // 15 second overall timeout
-
-    try {
-      addDebug(`Creating trip: ${tripData.name}`);
-
-      const departureDateObj = new Date(tripData.departureTime);
-      if (isNaN(departureDateObj.getTime())) {
-        throw new Error(`Invalid departure date: ${tripData.departureTime}`);
-      }
-      addDebug(`Departure date parsed: ${departureDateObj.toISOString()}`);
-
-      let returnDateObj: Date | null = null;
-      if (tripData.returnTime) {
-        returnDateObj = new Date(tripData.returnTime);
-        if (isNaN(returnDateObj.getTime())) {
-          addDebug(`Invalid return date, ignoring: ${tripData.returnTime}`);
-          returnDateObj = null;
-        }
-      }
-
-      const lobbyCode = generateLobbyCode();
-      addDebug(`Generated lobby code: ${lobbyCode}`);
-
-      const insertData = {
-        name: tripData.name,
-        group_name: tripData.groupName || null,
-        description: tripData.description || null,
-        lobby_code: lobbyCode,
-        admin_id: user.id,
-        departure_time: departureDateObj.toISOString(),
-        return_time: returnDateObj?.toISOString() || null,
-        status: 'planning' as const,
-      };
-      addDebug(`Insert data: ${JSON.stringify(insertData)}`);
-
-      addDebug('Sending insert query...');
-      const { data: trip, error: tripError } = await supabase
-        .from('trips')
-        .insert(insertData)
-        .select()
-        .single();
-
-      // Check if we already timed out
-      if (timedOut) {
-        addDebug('Query completed after timeout, ignoring result');
-        return;
-      }
-
-      if (tripError) {
-        addDebug(`ERROR creating trip: ${tripError.message} (${tripError.code})`);
-        console.error('[createTripAfterPayment] Trip error:', tripError);
-        setError(`Failed to create trip: ${tripError.message}`);
-        setStep('details');
-        setLoading(false);
-        clearTimeout(timeoutId);
-        return;
-      }
-
-      addDebug(`Trip created successfully: ${trip.id}`);
-
-      // Add creator as admin member
-      addDebug('Adding member...');
-      const { error: memberError } = await supabase.from('trip_members').insert({
-        trip_id: trip.id,
-        user_id: user.id,
-        role: 'admin',
-      });
-
-      // Check if we timed out during member insert
-      if (timedOut) {
-        addDebug('Member insert completed after timeout');
-        return;
-      }
-
-      if (memberError) {
-        addDebug(`WARNING: Failed to add member: ${memberError.message}`);
-        console.error('[createTripAfterPayment] Member error:', memberError);
-        // Don't fail - trip was created
-      } else {
-        addDebug('Member added successfully');
-      }
-
-      clearTimeout(timeoutId);
-      setCreatedTrip(trip as Trip);
-      setStep('success');
-      addDebug('Trip creation complete!');
-
-    } catch (err) {
-      clearTimeout(timeoutId);
-      if (timedOut) return;
-
-      const errMsg = err instanceof Error ? err.message : String(err);
-      addDebug(`EXCEPTION: ${errMsg}`);
-      console.error('[createTripAfterPayment] Unexpected error:', err);
-      setError(`Unexpected error: ${errMsg}`);
-      setStep('details');
-    } finally {
-      if (!timedOut) {
-        setLoading(false);
-      }
-    }
   }
 
   async function handleProceedToPayment(e: React.FormEvent) {
@@ -673,44 +655,29 @@ function CreateTripModal({
     };
 
     // Save to localStorage FIRST (guaranteed to work, fast)
-    addDebug(`Saving trip data to localStorage: ${JSON.stringify(tripData)}`);
+    addDebug(`Saving trip data to localStorage`);
     localStorage.setItem('pendingTripData', JSON.stringify(tripData));
 
-    // Save to Supabase pending_trips table (survives cross-domain redirects)
-    // Don't wait for this - proceed to payment step immediately
+    // Save to Supabase pending_trips table (fire and forget)
     if (user?.id) {
-      addDebug(`Saving trip data to Supabase pending_trips for user ${user.id}`);
-
-      // Use timeout to prevent hanging
-      const saveToSupabase = async () => {
-        try {
-          const { error: upsertError } = await supabase
-            .from('pending_trips')
-            .upsert({
-              user_id: user.id,
-              name: tripData.name,
-              group_name: tripData.groupName,
-              description: tripData.description,
-              departure_time: tripData.departureTime,
-              return_time: tripData.returnTime,
-            }, { onConflict: 'user_id' });
-
+      supabase
+        .from('pending_trips')
+        .upsert({
+          user_id: user.id,
+          name: tripData.name,
+          group_name: tripData.groupName,
+          description: tripData.description,
+          departure_time: tripData.departureTime,
+          return_time: tripData.returnTime,
+        }, { onConflict: 'user_id' })
+        .then(({ error: upsertError }) => {
           if (upsertError) {
             addDebug(`Failed to save to Supabase: ${upsertError.message}`);
-          } else {
-            addDebug('Trip data saved to Supabase successfully');
           }
-        } catch (err) {
-          addDebug(`Supabase save error: ${err}`);
-        }
-      };
-
-      // Fire and forget - don't block the UI
-      saveToSupabase();
+        });
     }
 
     setLoading(false);
-    addDebug('Proceeding to payment step');
     setStep('payment');
   }
 
@@ -719,10 +686,8 @@ function CreateTripModal({
     setLoading(true);
     setError('');
 
-    // Use Payment Link first if configured (supports coupon codes)
     const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
     if (paymentLink) {
-      addDebug('Using Payment Link (supports coupon codes)');
       try {
         const url = new URL(paymentLink);
         if (user?.id) {
@@ -733,17 +698,15 @@ function CreateTripModal({
         }
 
         localStorage.setItem('pendingPayment', 'true');
-        addDebug(`Redirecting to Stripe Payment Link: ${url.toString()}`);
+        addDebug(`Redirecting to Stripe Payment Link`);
         window.location.href = url.toString();
         return;
       } catch (urlError) {
         addDebug(`Invalid payment link URL: ${urlError}`);
-        // Fall through to API method
       }
     }
 
-    // Fallback to API if no Payment Link configured
-    addDebug('No Payment Link configured or invalid, using API');
+    // Fallback to API
     const savedTripData = localStorage.getItem('pendingTripData');
     let tripData: { name: string; groupName: string; description: string; departureTime: string; returnTime?: string } | null = null;
 
@@ -773,15 +736,13 @@ function CreateTripModal({
       });
 
       const data = await response.json();
-      addDebug(`API response: ${JSON.stringify(data)}`);
 
       if (data.url) {
         localStorage.setItem('pendingPayment', 'true');
         window.location.href = data.url;
         return;
       } else if (data.error) {
-        addDebug(`API returned error: ${data.error}`);
-        setError(`Payment error: ${data.error}. Please contact support if this persists.`);
+        setError(`Payment error: ${data.error}`);
         setLoading(false);
         return;
       }
@@ -789,7 +750,7 @@ function CreateTripModal({
       addDebug(`API error: ${err}`);
     }
 
-    setError('Payment system unavailable. Please check your internet connection and try again. If the problem persists, contact support.');
+    setError('Payment system unavailable. Please try again later.');
     setLoading(false);
   }
 
@@ -846,37 +807,6 @@ function CreateTripModal({
               Go to Trip
             </Link>
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  // Creating state (after payment)
-  if (step === 'creating') {
-    return (
-      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div className="card p-8 max-w-md w-full text-center">
-          {loading ? (
-            <>
-              <div className="animate-spin w-12 h-12 border-3 border-blue-500 border-t-transparent rounded-full mx-auto mb-4" />
-              <h2 className="text-xl font-bold mb-2">Creating your trip...</h2>
-              <p className="text-white/60">
-                Payment successful! Setting up your trip now.
-              </p>
-            </>
-          ) : error ? (
-            <>
-              <div className="w-16 h-16 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-4">
-                <span className="text-3xl">❌</span>
-              </div>
-              <h2 className="text-xl font-bold mb-2">Error Creating Trip</h2>
-              <p className="text-red-400 mb-4">{error}</p>
-              <button onClick={() => setStep('details')} className="btn-primary">
-                Try Again
-              </button>
-            </>
-          ) : null}
-
         </div>
       </div>
     );

@@ -8,6 +8,8 @@ import {
   Save,
   Plane,
   Image,
+  Loader2,
+  CheckCircle,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
@@ -312,10 +314,24 @@ export default function ProfilePage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="btn-primary w-full flex items-center justify-center gap-2"
+                className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                <Save className="w-5 h-5" />
-                {loading ? 'Saving...' : 'Save Changes'}
+                {loading ? (
+                  <>
+                    <Loader2 className="w-5 h-5 animate-spin" />
+                    Saving...
+                  </>
+                ) : message?.type === 'success' ? (
+                  <>
+                    <CheckCircle className="w-5 h-5 text-green-400" />
+                    Saved!
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-5 h-5" />
+                    Save Changes
+                  </>
+                )}
               </button>
             </form>
           </div>
