@@ -1,7 +1,63 @@
-import { Suspense, lazy, useState, useEffect } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import React, { Suspense, lazy, useState, useEffect, Component, type ErrorInfo } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, Link } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { TripProvider } from './contexts/TripContext';
+
+// Error Boundary to catch React errors and prevent blank screens
+interface ErrorBoundaryState {
+  hasError: boolean;
+  error: Error | null;
+}
+
+class ErrorBoundary extends Component<{ children: React.ReactNode }, ErrorBoundaryState> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error): ErrorBoundaryState {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('[ErrorBoundary] Caught error:', error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-8 text-center">
+          <div className="text-6xl">😵</div>
+          <h1 className="text-2xl font-bold text-white">Something went wrong</h1>
+          <p className="text-white/60 max-w-md">
+            An unexpected error occurred. This has been logged automatically.
+          </p>
+          <div className="flex gap-4 mt-4">
+            <button
+              onClick={() => window.location.reload()}
+              className="btn-primary"
+            >
+              Reload Page
+            </button>
+            <Link to="/" onClick={() => this.setState({ hasError: false, error: null })} className="btn-secondary">
+              Go Home
+            </Link>
+          </div>
+          {this.state.error && (
+            <details className="mt-6 text-left max-w-lg">
+              <summary className="cursor-pointer text-white/40 text-sm">Error details</summary>
+              <pre className="mt-2 p-4 bg-red-900/20 rounded-lg text-xs text-red-300 overflow-auto">
+                {this.state.error.toString()}
+              </pre>
+            </details>
+          )}
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 // Lazy load all page components for code splitting
 const LandingPage = lazy(() => import('./pages/LandingPage'));
@@ -181,12 +237,14 @@ function AppRoutes() {
 
 export default function App() {
   return (
-    <Router>
-      <AuthProvider>
-        <TripProvider>
-          <AppRoutes />
-        </TripProvider>
-      </AuthProvider>
-    </Router>
+    <ErrorBoundary>
+      <Router>
+        <AuthProvider>
+          <TripProvider>
+            <AppRoutes />
+          </TripProvider>
+        </AuthProvider>
+      </Router>
+    </ErrorBoundary>
   );
 }

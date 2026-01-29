@@ -390,158 +390,93 @@ function CreateTripModal({
     // Clear URL params immediately
     window.history.replaceState({}, '', window.location.pathname);
 
-    // If we have a session_id, verify payment via API and get trip data from Stripe metadata
-    if (sessionId) {
-      addDebug('Verifying payment via API with session_id...');
-      setStep('creating');
-      setLoading(true);
-
-      fetch('/api/verify-payment', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sessionId }),
-      })
-        .then(res => res.json())
-        .then(data => {
-          addDebug(`API response: ${JSON.stringify(data)}`);
-
-          if (data.success && data.tripName) {
-            // Got trip data from Stripe metadata
-            const tripData = {
-              name: data.tripName,
-              groupName: data.groupName || '',
-              description: data.description || '',
-              departureTime: data.departureTime || '',
-              returnTime: data.returnTime || '',
-            };
-
-            addDebug(`Trip data from Stripe: ${JSON.stringify(tripData)}`);
-
-            // Populate form fields
-            setName(tripData.name);
-            setGroupName(tripData.groupName);
-            setDescription(tripData.description);
-
-            if (tripData.departureTime) {
-              const [date, time] = tripData.departureTime.split('T');
-              setDepartureDate(date || '');
-              setDepartureTime(time?.slice(0, 5) || '');
-            }
-            if (tripData.returnTime) {
-              const [date, time] = tripData.returnTime.split('T');
-              setReturnDate(date || '');
-              setReturnTime(time?.slice(0, 5) || '');
-            }
-
-            // Clear localStorage
-            localStorage.removeItem('pendingTripData');
-            localStorage.removeItem('pendingPayment');
-
-            // Create the trip
-            createTripAfterPayment(tripData);
-          } else {
-            // API verification failed, try localStorage as fallback
-            addDebug('API verification failed, trying localStorage fallback');
-            tryLocalStorageFallback();
-          }
-        })
-        .catch(err => {
-          addDebug(`API error: ${err}, trying localStorage fallback`);
-          tryLocalStorageFallback();
-        });
-
-      return;
-    }
-
-    // No session_id (Payment Link flow) - verify payment via userId and use localStorage for trip data
-    addDebug('No session_id - Payment Link flow, verifying via userId...');
+    // Show creating state
     setStep('creating');
     setLoading(true);
 
-    // First, verify payment was made for this user
+    // Call verify-payment API which now creates the trip server-side
+    const requestBody = sessionId
+      ? { sessionId }
+      : { userId: user.id };
+
+    addDebug(`Verifying payment and creating trip... ${JSON.stringify(requestBody)}`);
+
     fetch('/api/verify-payment', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: user.id }),
+      body: JSON.stringify(requestBody),
     })
       .then(res => res.json())
       .then(data => {
-        addDebug(`Payment verification response: ${JSON.stringify(data)}`);
+        addDebug(`API response: ${JSON.stringify(data)}`);
 
-        if (data.success) {
-          addDebug('Payment verified for user, now checking localStorage for trip data');
-          tryLocalStorageFallback();
+        // Clear localStorage regardless of outcome
+        localStorage.removeItem('pendingTripData');
+        localStorage.removeItem('pendingPayment');
+
+        if (data.success && data.tripCreated) {
+          // Trip was created server-side! Show success and redirect
+          addDebug(`Trip created successfully! ID: ${data.tripId}, Code: ${data.lobbyCode}`);
+
+          // Create a minimal trip object for the success screen
+          const createdTripData = {
+            id: data.tripId,
+            lobby_code: data.lobbyCode,
+            name: data.tripName || 'Your Trip',
+          } as Trip;
+
+          setCreatedTrip(createdTripData);
+          setStep('success');
+          setLoading(false);
+        } else if (data.paymentVerified) {
+          // Payment was verified but trip creation failed
+          addDebug('Payment verified but trip creation failed, trying client-side fallback');
+          tryClientSideTripCreation();
         } else {
-          addDebug('Payment verification failed');
-          setError('Could not verify payment. If you paid, please contact support.');
+          // Payment verification failed
+          addDebug(`Payment verification failed: ${data.error}`);
+          setError(data.error || 'Could not verify payment. If you paid, please contact support.');
           setStep('details');
           setLoading(false);
         }
       })
       .catch(err => {
-        addDebug(`Payment verification error: ${err}`);
-        // Still try localStorage as fallback
-        tryLocalStorageFallback();
+        addDebug(`API error: ${err}`);
+        // Try client-side fallback
+        tryClientSideTripCreation();
       });
 
-    async function tryLocalStorageFallback() {
-      // First try to fetch from Supabase pending_trips table
-      if (user?.id) {
-        addDebug(`Checking Supabase pending_trips for user ${user.id}`);
-        const { data: pendingTrip, error: fetchError } = await supabase
-          .from('pending_trips')
-          .select('*')
-          .eq('user_id', user.id)
-          .single();
+    async function tryClientSideTripCreation() {
+      addDebug('Attempting client-side trip creation as fallback...');
 
-        if (!fetchError && pendingTrip) {
-          addDebug(`Found pending trip in Supabase: ${JSON.stringify(pendingTrip)}`);
-
-          // Delete the pending trip from Supabase
-          await supabase.from('pending_trips').delete().eq('user_id', user.id);
-          localStorage.removeItem('pendingTripData');
-          localStorage.removeItem('pendingPayment');
-
-          const tripData = {
-            name: pendingTrip.name,
-            groupName: pendingTrip.group_name || '',
-            description: pendingTrip.description || '',
-            departureTime: pendingTrip.departure_time,
-            returnTime: pendingTrip.return_time,
-          };
-
-          // Populate form fields
-          setName(tripData.name || '');
-          setGroupName(tripData.groupName || '');
-          setDescription(tripData.description || '');
-
-          if (tripData.departureTime) {
-            const dt = new Date(tripData.departureTime);
-            setDepartureDate(dt.toISOString().split('T')[0]);
-            setDepartureTime(dt.toTimeString().slice(0, 5));
-          }
-          if (tripData.returnTime) {
-            const rt = new Date(tripData.returnTime);
-            setReturnDate(rt.toISOString().split('T')[0]);
-            setReturnTime(rt.toTimeString().slice(0, 5));
-          }
-
-          setStep('creating');
-          addDebug('Starting trip creation from Supabase data...');
-          createTripAfterPayment(tripData);
-          return;
-        } else {
-          addDebug(`Supabase fetch failed or empty: ${fetchError?.message || 'no data'}`);
-        }
-      }
-
-      // Fallback to localStorage
+      // Try to get trip data from localStorage
       const savedTripData = localStorage.getItem('pendingTripData');
-      addDebug(`localStorage fallback: hasTripData=${!!savedTripData}`);
 
       if (!savedTripData) {
-        addDebug('ERROR: No saved trip data found in localStorage or Supabase!');
-        setError('Payment was successful but trip data was lost. This can happen if you used a different browser tab. Please create the trip again - you will NOT be charged twice.');
+        // Also try Supabase pending_trips
+        if (user?.id) {
+          const { data: pendingTrip, error: fetchError } = await supabase
+            .from('pending_trips')
+            .select('*')
+            .eq('user_id', user.id)
+            .single();
+
+          if (!fetchError && pendingTrip) {
+            addDebug('Found pending trip in Supabase');
+            const tripData = {
+              name: pendingTrip.name,
+              groupName: pendingTrip.group_name || '',
+              description: pendingTrip.description || '',
+              departureTime: pendingTrip.departure_time,
+              returnTime: pendingTrip.return_time,
+            };
+            createTripAfterPayment(tripData);
+            return;
+          }
+        }
+
+        addDebug('No pending trip data found anywhere');
+        setError('Payment was successful but trip data was lost. Please contact support with your payment confirmation.');
         setStep('details');
         setLoading(false);
         return;
@@ -549,36 +484,13 @@ function CreateTripModal({
 
       try {
         const tripData = JSON.parse(savedTripData);
-        addDebug(`Parsed trip data from localStorage: ${JSON.stringify(tripData)}`);
-
-        // Clear localStorage to prevent re-triggering
+        addDebug(`Creating trip from localStorage: ${tripData.name}`);
         localStorage.removeItem('pendingTripData');
         localStorage.removeItem('pendingPayment');
-
-        // Populate form fields
-        setName(tripData.name || '');
-        setGroupName(tripData.groupName || '');
-        setDescription(tripData.description || '');
-
-        if (tripData.departureTime) {
-          const [date, time] = tripData.departureTime.split('T');
-          setDepartureDate(date || '');
-          setDepartureTime(time?.slice(0, 5) || '');
-        }
-        if (tripData.returnTime) {
-          const [date, time] = tripData.returnTime.split('T');
-          setReturnDate(date || '');
-          setReturnTime(time?.slice(0, 5) || '');
-        }
-
-        // Set to creating state and create trip
-        setStep('creating');
-        addDebug('Starting trip creation from localStorage...');
         createTripAfterPayment(tripData);
-
       } catch (err) {
-        addDebug(`ERROR parsing trip data: ${err}`);
-        setError('Failed to parse trip data. Please try again.');
+        addDebug(`Failed to parse trip data: ${err}`);
+        setError('Failed to create trip. Please contact support.');
         setStep('details');
         setLoading(false);
       }

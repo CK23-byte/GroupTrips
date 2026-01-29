@@ -324,6 +324,30 @@ export default function OutlookSchedule({
 
   return (
     <div className="card overflow-hidden">
+      {/* Prominent AI Import Banner - Only for admins */}
+      {isAdmin && (
+        <div className="p-4 bg-gradient-to-r from-blue-500/10 via-fuchsia-500/10 to-blue-500/10 border-b border-white/10">
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            <div className="flex-1 text-center sm:text-left">
+              <div className="flex items-center justify-center sm:justify-start gap-2 mb-1">
+                <Sparkles className="w-5 h-5 text-blue-400" />
+                <span className="font-semibold text-white">AI Import - Paste Your Booking</span>
+              </div>
+              <p className="text-sm text-white/60">
+                Paste a hotel confirmation, flight email, or itinerary. AI extracts the details automatically.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-fuchsia-500 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity shadow-lg shadow-blue-500/20"
+            >
+              <FileText className="w-5 h-5" />
+              Import with AI
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Header with navigation */}
       <div className="p-4 border-b border-white/10 flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-2">
@@ -743,6 +767,26 @@ function AddScheduleModal({
   const [endTime, setEndTime] = useState('');
   const [loading, setLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Auto-fill end time when start time changes (1 hour after start, same day)
+  useEffect(() => {
+    if (startTime && !endTime) {
+      try {
+        const start = new Date(startTime);
+        // Add 1 hour to start time
+        const end = new Date(start.getTime() + 60 * 60 * 1000);
+        // Format as datetime-local string (YYYY-MM-DDTHH:MM)
+        const year = end.getFullYear();
+        const month = String(end.getMonth() + 1).padStart(2, '0');
+        const day = String(end.getDate()).padStart(2, '0');
+        const hours = String(end.getHours()).padStart(2, '0');
+        const minutes = String(end.getMinutes()).padStart(2, '0');
+        setEndTime(`${year}-${month}-${day}T${hours}:${minutes}`);
+      } catch (err) {
+        console.error('[AddScheduleModal] Error calculating end time:', err);
+      }
+    }
+  }, [startTime]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
