@@ -3,12 +3,68 @@ import {
   Send,
   Pin,
   MessageSquare,
-  Image,
+  Paperclip,
   X,
+  FileText,
+  Download,
 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { supabase } from '../lib/supabase';
 import type { TripMessage } from '../types';
+
+// Allowed file types for upload
+const ALLOWED_FILE_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif',
+  'video/mp4',
+  'video/webm',
+  'video/quicktime',
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'text/plain',
+];
+
+const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+
+// Helper to check if file is an image
+function isImageFile(file: File | string): boolean {
+  if (typeof file === 'string') {
+    return /\.(jpg|jpeg|png|webp|gif)$/i.test(file);
+  }
+  return file.type.startsWith('image/');
+}
+
+// Helper to check if file is a video
+function isVideoFile(file: File | string): boolean {
+  if (typeof file === 'string') {
+    return /\.(mp4|webm|mov)$/i.test(file);
+  }
+  return file.type.startsWith('video/');
+}
+
+// Helper to check if file is a document
+function isDocumentFile(file: File | string): boolean {
+  if (typeof file === 'string') {
+    return /\.(pdf|doc|docx|txt)$/i.test(file);
+  }
+  return !file.type.startsWith('image/') && !file.type.startsWith('video/');
+}
+
+// Get file name from URL
+function getFileNameFromUrl(url: string): string {
+  try {
+    const parts = url.split('/');
+    const filename = parts[parts.length - 1];
+    // Remove the timestamp prefix if present
+    const cleanName = filename.replace(/^\d+-[a-z0-9]+-/, '');
+    return decodeURIComponent(cleanName);
+  } catch {
+    return 'Document';
+  }
+}
 
 interface MessagesPanelProps {
   messages: TripMessage[];
@@ -42,10 +98,30 @@ export default function MessagesPanel({
 
   function handleMediaSelect(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (file) {
-      setMediaFile(file);
+    if (!file) return;
+
+    // Validate file type
+    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+      setUploadError('File type not supported. Please upload images, videos, or documents (PDF, DOC, DOCX, TXT).');
+      return;
+    }
+
+    // Validate file size
+    if (file.size > MAX_FILE_SIZE) {
+      setUploadError('File is too large. Maximum size is 10MB.');
+      return;
+    }
+
+    setUploadError('');
+    setMediaFile(file);
+
+    // Only create preview URL for images/videos
+    if (isImageFile(file) || isVideoFile(file)) {
       const previewUrl = URL.createObjectURL(file);
       setMediaPreview(previewUrl);
+    } else {
+      // For documents, we don't need a blob URL preview
+      setMediaPreview(null);
     }
   }
 
@@ -69,13 +145,15 @@ export default function MessagesPanel({
 
     let mediaUrl: string | null = null;
 
-    // Upload media if present
+    // Upload file if present
     if (mediaFile) {
-      const fileExt = mediaFile.name.split('.').pop()?.toLowerCase();
-      const fileName = `${tripId}/chat/${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-      const isVideo = mediaFile.type.startsWith('video/');
+      // Include original filename in storage path for documents
+      const sanitizedName = mediaFile.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+      const fileName = `${tripId}/chat/${Date.now()}-${Math.random().toString(36).substr(2, 9)}-${sanitizedName}`;
+      const isVideo = isVideoFile(mediaFile);
+      const isDocument = isDocumentFile(mediaFile);
 
-      console.log('[Chat] Uploading media file:', fileName);
+      console.log('[Chat] Uploading file:', fileName, 'type:', isDocument ? 'document' : isVideo ? 'video' : 'image');
 
       const { error: storageError, data: uploadData } = await supabase.storage
         .from('trip-media')
@@ -86,7 +164,7 @@ export default function MessagesPanel({
 
       if (storageError) {
         console.error('[Chat] Storage upload error:', storageError);
-        setUploadError('Failed to upload media. Please try again.');
+        setUploadError('Failed to upload file. Please try again.');
         setSending(false);
         return;
       }
@@ -96,10 +174,10 @@ export default function MessagesPanel({
           .from('trip-media')
           .getPublicUrl(fileName);
         mediaUrl = publicUrl;
-        console.log('[Chat] Media uploaded successfully:', publicUrl);
+        console.log('[Chat] File uploaded successfully:', publicUrl);
 
-        // Also save to media gallery if checkbox is checked
-        if (saveToGallery) {
+        // Also save to media gallery if checkbox is checked (only for images/videos)
+        if (saveToGallery && !isDocument) {
           console.log('[Chat] Saving to media gallery...');
           const { error: mediaError } = await supabase.from('trip_media').insert({
             trip_id: tripId,
@@ -200,15 +278,34 @@ export default function MessagesPanel({
           </div>
         )}
 
-        {/* Media Preview */}
-        {mediaPreview && (
+        {/* Media/File Preview */}
+        {(mediaPreview || mediaFile) && (
           <div className="mb-3">
             <div className="relative inline-block">
-              <img
-                src={mediaPreview}
-                alt="Preview"
-                className="h-16 w-16 sm:h-20 sm:w-20 object-cover rounded-lg"
-              />
+              {mediaFile && isDocumentFile(mediaFile) ? (
+                // Document preview
+                <div className="flex items-center gap-3 p-3 bg-white/10 rounded-lg border border-white/20">
+                  <FileText className="w-8 h-8 text-blue-400 flex-shrink-0" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate max-w-[200px]">{mediaFile.name}</p>
+                    <p className="text-xs text-white/50">{(mediaFile.size / 1024).toFixed(1)} KB</p>
+                  </div>
+                </div>
+              ) : mediaPreview ? (
+                // Image/Video preview
+                isVideoFile(mediaFile!) ? (
+                  <video
+                    src={mediaPreview}
+                    className="h-16 w-16 sm:h-20 sm:w-20 object-cover rounded-lg"
+                  />
+                ) : (
+                  <img
+                    src={mediaPreview}
+                    alt="Preview"
+                    className="h-16 w-16 sm:h-20 sm:w-20 object-cover rounded-lg"
+                  />
+                )
+              ) : null}
               <button
                 type="button"
                 onClick={clearMedia}
@@ -217,16 +314,18 @@ export default function MessagesPanel({
                 <X className="w-3 h-3" />
               </button>
             </div>
-            {/* Save to Gallery checkbox */}
-            <label className="flex items-center gap-2 mt-2 text-sm text-white/70 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={saveToGallery}
-                onChange={(e) => setSaveToGallery(e.target.checked)}
-                className="w-4 h-4 rounded border-white/30 bg-white/10 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
-              />
-              Also save to Media gallery
-            </label>
+            {/* Save to Gallery checkbox - only for images/videos */}
+            {mediaFile && !isDocumentFile(mediaFile) && (
+              <label className="flex items-center gap-2 mt-2 text-sm text-white/70 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={saveToGallery}
+                  onChange={(e) => setSaveToGallery(e.target.checked)}
+                  className="w-4 h-4 rounded border-white/30 bg-white/10 text-blue-500 focus:ring-blue-500 focus:ring-offset-0"
+                />
+                Also save to Media gallery
+              </label>
+            )}
           </div>
         )}
 
@@ -234,7 +333,7 @@ export default function MessagesPanel({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*,video/*"
+            accept="image/*,video/*,.pdf,.doc,.docx,.txt,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
             onChange={handleMediaSelect}
             className="hidden"
           />
@@ -242,9 +341,9 @@ export default function MessagesPanel({
             type="button"
             onClick={() => fileInputRef.current?.click()}
             className="btn-secondary px-2 sm:px-3 flex-shrink-0"
-            title="Add photo/video"
+            title="Attach file (photos, videos, documents)"
           >
-            <Image className="w-5 h-5" />
+            <Paperclip className="w-5 h-5" />
           </button>
           <input
             type="text"
@@ -312,15 +411,30 @@ function MessageBubble({
             </div>
           )}
 
-          {/* Media content */}
+          {/* Media/File content */}
           {message.media_url && (
             <div className="mb-2">
-              {message.media_url.match(/\.(mp4|webm|mov)$/i) ? (
+              {isVideoFile(message.media_url) ? (
                 <video
                   src={message.media_url}
                   controls
                   className="max-w-full rounded-lg max-h-48 sm:max-h-64"
                 />
+              ) : isDocumentFile(message.media_url) ? (
+                // Document display with download link
+                <a
+                  href={message.media_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-3 p-3 bg-white/10 rounded-lg border border-white/20 hover:bg-white/20 transition-colors group"
+                >
+                  <FileText className="w-8 h-8 text-blue-400 flex-shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{getFileNameFromUrl(message.media_url)}</p>
+                    <p className="text-xs text-white/50">Click to download</p>
+                  </div>
+                  <Download className="w-5 h-5 text-white/40 group-hover:text-white/70 transition-colors flex-shrink-0" />
+                </a>
               ) : (
                 <img
                   src={message.media_url}

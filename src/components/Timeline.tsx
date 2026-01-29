@@ -160,15 +160,33 @@ export default function Timeline({ schedule, isAdmin, tripId, trip, memberCount,
 
   return (
     <div>
+      {/* Prominent AI Import Banner - Only for admins */}
+      {isAdmin && (
+        <div className="mb-6 p-4 bg-gradient-to-r from-blue-500/10 via-fuchsia-500/10 to-blue-500/10 border border-white/10 rounded-xl">
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            <div className="flex-1 text-center sm:text-left">
+              <div className="flex items-center justify-center sm:justify-start gap-2 mb-1">
+                <Sparkles className="w-5 h-5 text-blue-400" />
+                <span className="font-semibold text-white">AI Import - Paste Your Booking</span>
+              </div>
+              <p className="text-sm text-white/60">
+                Paste a hotel confirmation, flight email, or itinerary. AI extracts the details automatically.
+              </p>
+            </div>
+            <button
+              onClick={() => setShowImportModal(true)}
+              className="flex items-center gap-2 px-6 py-3 bg-gradient-to-r from-blue-500 to-fuchsia-500 text-white rounded-xl font-semibold hover:opacity-90 transition-opacity shadow-lg shadow-blue-500/20"
+            >
+              <FileText className="w-5 h-5" />
+              Import with AI
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Action buttons for admin */}
       {isAdmin && (
         <div className="mb-6 flex justify-end gap-3">
-          <button
-            onClick={() => setShowImportModal(true)}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <FileText className="w-5 h-5" />
-            AI Import
-          </button>
           <button
             onClick={() => setShowSuggestionsModal(true)}
             className="btn-secondary flex items-center gap-2"
@@ -492,6 +510,26 @@ function AddScheduleModal({
   const [loading, setLoading] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
+  // Auto-fill end time when start time changes (1 hour after start, same day)
+  useEffect(() => {
+    if (startTime && !endTime) {
+      try {
+        const start = new Date(startTime);
+        // Add 1 hour to start time
+        const end = new Date(start.getTime() + 60 * 60 * 1000);
+        // Format as datetime-local string (YYYY-MM-DDTHH:MM)
+        const year = end.getFullYear();
+        const month = String(end.getMonth() + 1).padStart(2, '0');
+        const day = String(end.getDate()).padStart(2, '0');
+        const hours = String(end.getHours()).padStart(2, '0');
+        const minutes = String(end.getMinutes()).padStart(2, '0');
+        setEndTime(`${year}-${month}-${day}T${hours}:${minutes}`);
+      } catch (err) {
+        console.error('[AddScheduleModal] Error calculating end time:', err);
+      }
+    }
+  }, [startTime]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
@@ -709,6 +747,9 @@ interface AIActivity {
   best_time: string;
   booking_url?: string;
   location?: string;
+  rating?: number | null;
+  address?: string;
+  tips?: string;
 }
 
 // Activity Detail Modal with Edit functionality
@@ -1137,12 +1178,16 @@ function AISuggestionsModal({
   const [suggestions, setSuggestions] = useState<AIActivity[]>([]);
   const [error, setError] = useState('');
   const [adding, setAdding] = useState<number | null>(null);
+  const [disclaimer, setDisclaimer] = useState('');
+  const [source, setSource] = useState<string>('');
 
   async function handleGetSuggestions(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError('');
     setSuggestions([]);
+    setDisclaimer('');
+    setSource('');
 
     try {
       const response = await fetch('/api/suggest-activities', {
@@ -1157,6 +1202,8 @@ function AISuggestionsModal({
         setError(data.error);
       } else if (data.activities) {
         setSuggestions(data.activities);
+        if (data.disclaimer) setDisclaimer(data.disclaimer);
+        if (data.source) setSource(data.source);
       } else if (data.raw) {
         setError('Could not parse AI response. Try again.');
       }
@@ -1304,6 +1351,17 @@ function AISuggestionsModal({
           </form>
         ) : (
           <div className="space-y-4">
+            {/* Source indicator */}
+            {source === 'google_places' && (
+              <div className="flex items-center gap-2 text-xs text-green-400 bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
+                  <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                </svg>
+                <span>Activities sourced from Google Places</span>
+              </div>
+            )}
+
             <p className="text-sm text-white/60 mb-4">
               Click on an activity to add it to your schedule:
             </p>
@@ -1326,7 +1384,20 @@ function AISuggestionsModal({
                       <span>⏱️ {activity.duration_hours}h</span>
                       <span>💰 €{activity.estimated_cost}/person</span>
                       <span>🌅 Best: {activity.best_time}</span>
+                      {activity.rating && <span>⭐ {activity.rating}/5</span>}
                     </div>
+                    {activity.booking_url && (
+                      <a
+                        href={activity.booking_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 mt-2"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        View on {activity.booking_url.includes('google.com') ? 'Google' : 'Web'}
+                      </a>
+                    )}
                   </div>
                   <button
                     onClick={() => handleAddActivity(activity, index)}
@@ -1343,12 +1414,23 @@ function AISuggestionsModal({
               </div>
             ))}
 
+            {/* Disclaimer */}
+            {disclaimer && (
+              <p className="text-xs text-white/40 italic border-t border-white/10 pt-3">
+                {disclaimer}
+              </p>
+            )}
+
             <div className="flex gap-3 pt-4">
               <button onClick={onClose} className="btn-secondary flex-1">
                 Done
               </button>
               <button
-                onClick={() => setSuggestions([])}
+                onClick={() => {
+                  setSuggestions([]);
+                  setDisclaimer('');
+                  setSource('');
+                }}
                 className="btn-secondary flex-1"
               >
                 Get New Suggestions
