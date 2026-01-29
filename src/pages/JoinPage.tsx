@@ -1,16 +1,27 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Plane, Hash } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
 import { useTrip } from '../contexts/TripContext';
 
 export default function JoinPage() {
+  const [searchParams] = useSearchParams();
   const [lobbyCode, setLobbyCode] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const { user } = useAuth();
   const { joinTrip } = useTrip();
   const navigate = useNavigate();
+
+  // Check for code in URL query params (from redirect after login)
+  useEffect(() => {
+    const codeFromUrl = searchParams.get('code');
+    if (codeFromUrl) {
+      console.log('[JoinPage] Found code in URL:', codeFromUrl);
+      const cleaned = codeFromUrl.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 6);
+      setLobbyCode(cleaned);
+    }
+  }, [searchParams]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -28,14 +39,29 @@ export default function JoinPage() {
       return;
     }
 
+    console.log('[JoinPage] Attempting to join trip with code:', lobbyCode);
     setLoading(true);
-    const { error } = await joinTrip(lobbyCode);
 
-    if (error) {
-      setError(error);
+    try {
+      const result = await joinTrip(lobbyCode);
+      console.log('[JoinPage] Join result:', result);
+
+      if (result.error) {
+        setError(result.error);
+        setLoading(false);
+      } else if (result.tripId) {
+        console.log('[JoinPage] Success! Navigating to trip:', result.tripId);
+        navigate(`/trip/${result.tripId}`);
+      } else {
+        // Fallback: try to get trip ID from context
+        console.error('[JoinPage] No tripId returned, checking TripContext');
+        setError('Failed to join trip. Please try again.');
+        setLoading(false);
+      }
+    } catch (err) {
+      console.error('[JoinPage] Unexpected error:', err);
+      setError('An unexpected error occurred. Please try again.');
       setLoading(false);
-    } else {
-      navigate('/trip');
     }
   }
 

@@ -254,10 +254,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   async function signInWithGoogle() {
     authLog('signInWithGoogle started');
     try {
-      const { error } = await supabase.auth.signInWithOAuth({
+      // Build the redirect URL - must match exactly what's configured in Supabase
+      const redirectUrl = `${window.location.origin}/dashboard`;
+      authLog('signInWithGoogle redirectTo:', redirectUrl);
+
+      const { error, data } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/dashboard`,
+          redirectTo: redirectUrl,
+          // Skip auto-confirm for better control
+          skipBrowserRedirect: false,
+          // Query params to help with tracking
+          queryParams: {
+            access_type: 'offline',
+            prompt: 'consent',
+          },
         },
       });
 
@@ -265,7 +276,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         authLog('signInWithGoogle error', error.message);
         return { error: error.message };
       }
-      authLog('signInWithGoogle - redirecting to Google');
+
+      authLog('signInWithGoogle - redirecting to Google', { url: data?.url });
       return { error: null };
     } catch (err) {
       authLog('signInWithGoogle exception', err);
