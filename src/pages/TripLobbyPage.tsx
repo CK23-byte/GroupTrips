@@ -65,6 +65,15 @@ export default function TripLobbyPage() {
   const [copied, setCopied] = useState(false);
   const [scheduleView, setScheduleView] = useState<'calendar' | 'timeline'>('calendar');
 
+  // Track mounted state to prevent state updates on unmounted component
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   useEffect(() => {
     if (tripId && user) {
       loadTripData();
@@ -84,6 +93,12 @@ export default function TripLobbyPage() {
         .eq('id', tripId)
         .single();
 
+      // Check if component is still mounted
+      if (!isMountedRef.current) {
+        console.log('[TripLobby] Component unmounted, skipping state updates');
+        return;
+      }
+
       console.log('[TripLobby] Trip:', tripData, 'Error:', tripError);
 
       if (tripData) {
@@ -95,6 +110,8 @@ export default function TripLobbyPage() {
         .from('trip_members')
         .select('*, user:users(*)')
         .eq('trip_id', tripId);
+
+      if (!isMountedRef.current) return;
 
       console.log('[TripLobby] Members:', membersData, 'Error:', membersError);
 
@@ -112,6 +129,8 @@ export default function TripLobbyPage() {
         .order('created_at', { ascending: false })
         .limit(50);
 
+      if (!isMountedRef.current) return;
+
       console.log('[TripLobby] Messages:', messagesData?.length, 'Error:', messagesError);
 
       if (messagesData) {
@@ -124,6 +143,8 @@ export default function TripLobbyPage() {
         .select('*')
         .eq('trip_id', tripId)
         .order('start_time', { ascending: true });
+
+      if (!isMountedRef.current) return;
 
       console.log('[TripLobby] Schedule:', scheduleData?.length, 'Error:', scheduleError);
 
@@ -139,6 +160,8 @@ export default function TripLobbyPage() {
         .eq('member_id', user.id)
         .order('departure_time', { ascending: true });
 
+      if (!isMountedRef.current) return;
+
       console.log('[TripLobby] Tickets:', ticketsData?.length, 'Error:', ticketsError);
 
       if (ticketsData) {
@@ -148,7 +171,9 @@ export default function TripLobbyPage() {
       console.error('[TripLobby] Unexpected error:', err);
     }
 
-    setLoading(false);
+    if (isMountedRef.current) {
+      setLoading(false);
+    }
   }
 
   async function copyLobbyCode() {
@@ -1170,8 +1195,16 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
       setSharing(false);
       setMyLocation(null);
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isSharingDisabled]);
+  }, [isSharingDisabled, sharing, watchId]);
+
+  // Track mounted state to prevent state updates on unmounted component
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     locationLog('LocationTab mounted', { tripId, userId: user?.id });
@@ -1190,7 +1223,9 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
         },
         (payload) => {
           locationLog('Realtime update received', payload);
-          loadLocations();
+          if (isMountedRef.current) {
+            loadLocations();
+          }
         }
       )
       .subscribe((status) => {
@@ -1217,6 +1252,12 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
       .from('member_locations')
       .select('*, user:users(name)')
       .eq('trip_id', tripId);
+
+    // Check if component is still mounted before updating state
+    if (!isMountedRef.current) {
+      locationLog('Component unmounted, skipping state update');
+      return;
+    }
 
     if (fetchError) {
       locationLog('Error loading locations', fetchError);
@@ -1281,6 +1322,11 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
       async (position) => {
         try {
           clearTimeout(timeoutId);
+          // Check if component is still mounted
+          if (!isMountedRef.current) {
+            locationLog('Component unmounted, skipping position update');
+            return;
+          }
           const { latitude, longitude, accuracy } = position.coords;
           locationLog('Position received', { latitude, longitude, accuracy });
           setMyLocation({ lat: latitude, lng: longitude });
@@ -1313,6 +1359,11 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
       },
       (err) => {
         clearTimeout(timeoutId);
+        // Check if component is still mounted
+        if (!isMountedRef.current) {
+          locationLog('Component unmounted, skipping error handling');
+          return;
+        }
         locationLog('Geolocation error', { code: err.code, message: err.message });
         let errorMsg = 'Error getting location';
         switch (err.code) {
@@ -1361,6 +1412,12 @@ function LocationTab({ tripId, members, tripEndTime }: { tripId: string; members
         .delete()
         .eq('trip_id', tripId)
         .eq('user_id', user.id);
+
+      // Check if component is still mounted before updating state
+      if (!isMountedRef.current) {
+        locationLog('Component unmounted after delete');
+        return;
+      }
 
       if (deleteError) {
         locationLog('Error deleting location', deleteError);

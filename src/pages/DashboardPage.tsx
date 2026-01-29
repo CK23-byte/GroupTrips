@@ -31,12 +31,11 @@ export default function DashboardPage() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [paymentReturnDetected, setPaymentReturnDetected] = useState(false);
   const [paymentSessionId, setPaymentSessionId] = useState<string | null>(null);
-  const hasCheckedPayment = useRef(false);
 
-  // Check for payment return on mount - but only once
+  // Check for payment return on mount and when user becomes available
   useEffect(() => {
-    if (hasCheckedPayment.current) return;
-    hasCheckedPayment.current = true;
+    // Only proceed if we haven't already detected payment return
+    if (paymentReturnDetected) return;
 
     const urlParams = new URLSearchParams(window.location.search);
     const paymentStatus = urlParams.get('payment');
@@ -45,13 +44,14 @@ export default function DashboardPage() {
     const savedTripData = localStorage.getItem('pendingTripData');
     const pendingPayment = localStorage.getItem('pendingPayment');
 
-    debugLog('Dashboard', 'Payment check on mount', {
+    debugLog('Dashboard', 'Payment check', {
       paymentStatus,
       sessionId: sessionId ? `${sessionId.slice(0, 20)}...` : null,
       hasSavedTripData: !!savedTripData,
       savedTripDataPreview: savedTripData?.slice(0, 100),
       pendingPayment,
       url: window.location.href,
+      hasUser: !!user,
     });
 
     // If returning from payment with session_id, we can retrieve trip data from Stripe
@@ -73,7 +73,7 @@ export default function DashboardPage() {
       window.history.replaceState({}, '', window.location.pathname);
       localStorage.removeItem('pendingPayment');
     }
-  }, []);
+  }, [user, paymentReturnDetected]);
 
   useEffect(() => {
     if (user) {
@@ -787,27 +787,33 @@ function CreateTripModal({
   async function handlePayment() {
     addDebug('handlePayment called');
     setLoading(true);
+    setError('');
 
     // Use Payment Link first if configured (supports coupon codes)
     const paymentLink = import.meta.env.VITE_STRIPE_PAYMENT_LINK;
     if (paymentLink) {
       addDebug('Using Payment Link (supports coupon codes)');
-      const url = new URL(paymentLink);
-      if (user?.id) {
-        url.searchParams.set('client_reference_id', user.id);
-      }
-      if (user?.email) {
-        url.searchParams.set('prefilled_email', user.email);
-      }
+      try {
+        const url = new URL(paymentLink);
+        if (user?.id) {
+          url.searchParams.set('client_reference_id', user.id);
+        }
+        if (user?.email) {
+          url.searchParams.set('prefilled_email', user.email);
+        }
 
-      localStorage.setItem('pendingPayment', 'true');
-      addDebug(`Redirecting to Stripe Payment Link: ${url.toString()}`);
-      window.location.href = url.toString();
-      return;
+        localStorage.setItem('pendingPayment', 'true');
+        addDebug(`Redirecting to Stripe Payment Link: ${url.toString()}`);
+        window.location.href = url.toString();
+        return;
+      } catch (urlError) {
+        addDebug(`Invalid payment link URL: ${urlError}`);
+        // Fall through to API method
+      }
     }
 
     // Fallback to API if no Payment Link configured
-    addDebug('No Payment Link configured, using API');
+    addDebug('No Payment Link configured or invalid, using API');
     const savedTripData = localStorage.getItem('pendingTripData');
     let tripData: { name: string; groupName: string; description: string; departureTime: string; returnTime?: string } | null = null;
 
@@ -843,12 +849,17 @@ function CreateTripModal({
         localStorage.setItem('pendingPayment', 'true');
         window.location.href = data.url;
         return;
+      } else if (data.error) {
+        addDebug(`API returned error: ${data.error}`);
+        setError(`Payment error: ${data.error}. Please contact support if this persists.`);
+        setLoading(false);
+        return;
       }
     } catch (err) {
       addDebug(`API error: ${err}`);
     }
 
-    setError('Payment system unavailable. Please try again later.');
+    setError('Payment system unavailable. Please check your internet connection and try again. If the problem persists, contact support.');
     setLoading(false);
   }
 
