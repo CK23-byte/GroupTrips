@@ -1,4 +1,4 @@
-import { Suspense, lazy } from 'react';
+import { Suspense, lazy, useState, useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { TripProvider } from './contexts/TripContext';
@@ -27,22 +27,53 @@ function PageLoader({ reason = 'page' }: { reason?: string }) {
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const [waitingForAuth, setWaitingForAuth] = useState(true);
+
+  // Check if returning from payment
+  const urlParams = new URLSearchParams(window.location.search);
+  const paymentStatus = urlParams.get('payment');
+  const sessionId = urlParams.get('session_id');
+  const hasPendingPayment = localStorage.getItem('pendingPayment') === 'true';
+  const hasPendingTripData = localStorage.getItem('pendingTripData');
+  const isPaymentReturn = paymentStatus === 'success' && (sessionId || hasPendingTripData || hasPendingPayment);
+
+  // Give auth extra time to load if returning from payment
+  // This handles cases where session recovery takes longer after cross-domain redirect
+  useEffect(() => {
+    if (loading) {
+      setWaitingForAuth(true);
+      return;
+    }
+
+    // If auth finished loading and we have a user, we're done waiting
+    if (user) {
+      setWaitingForAuth(false);
+      return;
+    }
+
+    // If no user and this is a payment return, wait a bit longer
+    // The auth might still be initializing from the session
+    if (isPaymentReturn) {
+      const timer = setTimeout(() => {
+        console.log('[ProtectedRoute] Extended wait timeout, proceeding with redirect');
+        setWaitingForAuth(false);
+      }, 2000); // Wait up to 2 more seconds for payment returns
+
+      return () => clearTimeout(timer);
+    }
+
+    // Not a payment return, proceed immediately
+    setWaitingForAuth(false);
+  }, [loading, user, isPaymentReturn]);
 
   // Log auth state for debugging
-  console.log(`[ProtectedRoute] loading=${loading}, user=${user?.id || 'null'}`);
+  console.log(`[ProtectedRoute] loading=${loading}, user=${user?.id || 'null'}, waitingForAuth=${waitingForAuth}, isPaymentReturn=${isPaymentReturn}`);
 
-  if (loading) {
+  if (loading || (waitingForAuth && isPaymentReturn && !user)) {
     return <PageLoader reason="authentication" />;
   }
 
   if (!user) {
-    // Check if returning from payment
-    const urlParams = new URLSearchParams(window.location.search);
-    const paymentStatus = urlParams.get('payment');
-    const sessionId = urlParams.get('session_id');
-    const hasPendingPayment = localStorage.getItem('pendingPayment') === 'true';
-    const hasPendingTripData = localStorage.getItem('pendingTripData');
-
     // Log diagnostic info when not authenticated
     console.log('[ProtectedRoute] User not authenticated, checking payment return...', {
       paymentStatus,
@@ -56,7 +87,7 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
     // 1. Has session_id (can retrieve trip data from Stripe)
     // 2. OR has pendingTripData in localStorage (persistent storage)
     // 3. OR has pendingPayment flag (Payment Link flow)
-    if (paymentStatus === 'success' && (sessionId || hasPendingTripData || hasPendingPayment)) {
+    if (isPaymentReturn) {
       console.log('[ProtectedRoute] Saving payment return URL for after login');
       localStorage.setItem('returnAfterLogin', window.location.href);
     }

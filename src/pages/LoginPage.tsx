@@ -66,9 +66,20 @@ export default function LoginPage() {
         const returnUrl = localStorage.getItem('returnAfterLogin');
         if (returnUrl) {
           localStorage.removeItem('returnAfterLogin');
-          window.location.href = returnUrl;
+          // Parse the return URL to extract the path and query params
+          try {
+            const url = new URL(returnUrl);
+            // Use navigate() with the pathname + search to preserve payment params
+            const pathWithParams = url.pathname + url.search;
+            console.log('[LoginPage] Navigating to return URL:', pathWithParams);
+            navigate(pathWithParams, { replace: true });
+          } catch {
+            // Fallback: if URL parsing fails, just go to dashboard
+            console.log('[LoginPage] Failed to parse return URL, going to dashboard');
+            navigate('/dashboard', { replace: true });
+          }
         } else {
-          navigate('/dashboard');
+          navigate('/dashboard', { replace: true });
         }
       }
     } catch (err) {
