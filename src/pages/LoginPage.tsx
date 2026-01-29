@@ -13,10 +13,37 @@ export default function LoginPage() {
   const navigate = useNavigate();
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // If already logged in, redirect to dashboard
+  // If already logged in, handle redirect
   useEffect(() => {
     if (user) {
-      navigate('/dashboard');
+      console.log('[LoginPage] User detected, handling redirect');
+
+      // Check for pending lobby code first (from join page)
+      const pendingLobbyCode = sessionStorage.getItem('pendingLobbyCode');
+      if (pendingLobbyCode) {
+        console.log('[LoginPage] Found pending lobby code, redirecting to join');
+        sessionStorage.removeItem('pendingLobbyCode');
+        navigate(`/join?code=${pendingLobbyCode}`, { replace: true });
+        return;
+      }
+
+      // Check for return URL (e.g., after payment)
+      const returnUrl = localStorage.getItem('returnAfterLogin');
+      if (returnUrl) {
+        console.log('[LoginPage] Found return URL:', returnUrl);
+        localStorage.removeItem('returnAfterLogin');
+        try {
+          const url = new URL(returnUrl);
+          const pathWithParams = url.pathname + url.search;
+          navigate(pathWithParams, { replace: true });
+        } catch {
+          navigate('/dashboard', { replace: true });
+        }
+        return;
+      }
+
+      // Default: go to dashboard
+      navigate('/dashboard', { replace: true });
     }
   }, [user, navigate]);
 

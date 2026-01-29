@@ -11,7 +11,7 @@ interface TripContextType {
   schedule: ScheduleItem[];
   isAdmin: boolean;
   loading: boolean;
-  joinTrip: (lobbyCode: string) => Promise<{ error: string | null }>;
+  joinTrip: (lobbyCode: string) => Promise<{ error: string | null; tripId?: string }>;
   leaveTrip: () => void;
   sendMessage: (content: string, type: TripMessage['type']) => Promise<{ error: string | null }>;
   updateLocation: (lat: number, lng: number) => Promise<void>;
@@ -59,50 +59,93 @@ export function TripProvider({ children }: { children: ReactNode }) {
     };
   }, [currentTrip]);
 
-  async function joinTrip(lobbyCode: string) {
+  async function joinTrip(lobbyCode: string): Promise<{ error: string | null; tripId?: string }> {
     if (!user) return { error: 'Not authenticated' };
 
+    console.log('[TripContext] joinTrip called with code:', lobbyCode);
     setLoading(true);
 
-    // Find trip by lobby code
-    const { data: trip, error: tripError } = await supabase
-      .from('trips')
-      .select('*')
-      .eq('lobby_code', lobbyCode.toUpperCase())
-      .single();
+    // Timeout protection - 5 seconds max
+    const timeoutPromise = new Promise<{ error: string }>((resolve) => {
+      setTimeout(() => resolve({ error: 'Request timed out. Please try again.' }), 5000);
+    });
 
-    if (tripError || !trip) {
-      setLoading(false);
-      return { error: 'Invalid lobby code' };
-    }
+    const joinPromise = async (): Promise<{ error: string | null; tripId?: string }> => {
+      try {
+        // Find trip by lobby code (normalize to uppercase)
+        const normalizedCode = lobbyCode.toUpperCase().trim();
+        console.log('[TripContext] Looking up trip with code:', normalizedCode);
 
-    // Check if already a member
-    const { data: existingMember } = await supabase
-      .from('trip_members')
-      .select('*')
-      .eq('trip_id', trip.id)
-      .eq('user_id', user.id)
-      .single();
+        const { data: trip, error: tripError } = await supabase
+          .from('trips')
+          .select('*')
+          .eq('lobby_code', normalizedCode)
+          .single();
 
-    if (!existingMember) {
-      // Add as member
-      const { error: joinError } = await supabase.from('trip_members').insert({
-        trip_id: trip.id,
-        user_id: user.id,
-        role: 'member',
-      });
+        if (tripError) {
+          console.error('[TripContext] Trip lookup error:', tripError);
+          if (tripError.code === 'PGRST116') {
+            return { error: 'Invalid lobby code. Please check and try again.' };
+          }
+          return { error: `Failed to find trip: ${tripError.message}` };
+        }
 
-      if (joinError) {
-        setLoading(false);
-        return { error: joinError.message };
+        if (!trip) {
+          return { error: 'Trip not found. Please check the lobby code.' };
+        }
+
+        console.log('[TripContext] Found trip:', trip.id, trip.name);
+
+        // Check if already a member
+        const { data: existingMember, error: memberCheckError } = await supabase
+          .from('trip_members')
+          .select('*')
+          .eq('trip_id', trip.id)
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+        if (memberCheckError) {
+          console.error('[TripContext] Member check error:', memberCheckError);
+        }
+
+        if (existingMember) {
+          console.log('[TripContext] User already a member, loading trip data');
+        } else {
+          // Add as member
+          console.log('[TripContext] Adding user as member');
+          const { error: joinError } = await supabase.from('trip_members').insert({
+            trip_id: trip.id,
+            user_id: user.id,
+            role: 'member',
+          });
+
+          if (joinError) {
+            console.error('[TripContext] Join error:', joinError);
+            return { error: `Failed to join trip: ${joinError.message}` };
+          }
+        }
+
+        // Load trip data
+        await loadTripData(trip.id);
+        setCurrentTrip(trip as Trip);
+
+        console.log('[TripContext] Successfully joined trip:', trip.id);
+        return { error: null, tripId: trip.id };
+      } catch (err) {
+        console.error('[TripContext] Unexpected error:', err);
+        return { error: 'An unexpected error occurred. Please try again.' };
       }
-    }
+    };
 
-    // Load trip data
-    await loadTripData(trip.id);
-    setCurrentTrip(trip as Trip);
-    setLoading(false);
-    return { error: null };
+    try {
+      const result = await Promise.race([joinPromise(), timeoutPromise]);
+      setLoading(false);
+      return result;
+    } catch (err) {
+      console.error('[TripContext] Race error:', err);
+      setLoading(false);
+      return { error: 'An unexpected error occurred. Please try again.' };
+    }
   }
 
   async function loadTripData(tripId: string) {

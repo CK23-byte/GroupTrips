@@ -82,23 +82,22 @@ export default function DashboardPage() {
   }, [user]);
 
   async function loadTrips() {
-    if (!user) {
-      debugLog('loadTrips', 'No user, skipping');
+    if (!user?.id) {
+      debugLog('loadTrips', 'No user or user.id, skipping');
       setLoading(false);
       return;
     }
 
     debugLog('loadTrips', 'Loading trips for user', user.id);
 
-    try {
-      // Use AbortController-style timeout with flag
-      let timedOut = false;
-      const timeoutId = setTimeout(() => {
-        timedOut = true;
-        debugLog('loadTrips', 'Query timed out after 8s');
-        setLoading(false);
-      }, 8000);
+    // Use AbortController-style timeout with flag
+    let timedOut = false;
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      debugLog('loadTrips', 'Query timed out after 5s');
+    }, 5000);
 
+    try {
       const { data: memberData, error: memberError } = await supabase
         .from('trip_members')
         .select('trip_id')
@@ -114,13 +113,13 @@ export default function DashboardPage() {
 
       if (memberError) {
         console.error('[loadTrips] Error fetching memberships:', memberError);
-        setLoading(false);
+        // Still continue to show empty state rather than error
         return;
       }
 
       if (memberData && memberData.length > 0) {
         const tripIds = memberData.map((m: { trip_id: string }) => m.trip_id);
-        debugLog('loadTrips', 'Fetching trips', tripIds);
+        debugLog('loadTrips', 'Fetching trips for IDs:', tripIds);
 
         const { data: tripsData, error: tripsError } = await supabase
           .from('trips')
@@ -134,18 +133,21 @@ export default function DashboardPage() {
           console.error('[loadTrips] Error fetching trips:', tripsError);
         } else if (tripsData) {
           setTrips(tripsData as (Trip & { members: TripMember[] })[]);
+          debugLog('loadTrips', 'Successfully loaded trips:', tripsData.length);
         }
       } else {
-        debugLog('loadTrips', 'No memberships found');
+        debugLog('loadTrips', 'No memberships found - user has no trips');
+        setTrips([]);
       }
     } catch (err) {
+      clearTimeout(timeoutId);
       const errMsg = err instanceof Error ? err.message : String(err);
       console.error('[loadTrips] Unexpected error:', errMsg);
       debugLog('loadTrips', 'Error (possibly timeout)', errMsg);
-      // Don't show error to user for loadTrips - just fail silently and show empty state
+    } finally {
+      // Always reset loading state
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   async function handleSignOut() {
@@ -747,6 +749,7 @@ function CreateTripModal({
     }
 
     setError('');
+    setLoading(true);
 
     // Save trip data for after payment
     const tripData = {
@@ -757,30 +760,45 @@ function CreateTripModal({
       returnTime: returnDateTimeStr
     };
 
-    // Save to Supabase pending_trips table (survives cross-domain redirects)
-    if (user?.id) {
-      addDebug(`Saving trip data to Supabase pending_trips for user ${user.id}`);
-      const { error: upsertError } = await supabase
-        .from('pending_trips')
-        .upsert({
-          user_id: user.id,
-          name: tripData.name,
-          group_name: tripData.groupName,
-          description: tripData.description,
-          departure_time: tripData.departureTime,
-          return_time: tripData.returnTime,
-        }, { onConflict: 'user_id' });
-
-      if (upsertError) {
-        addDebug(`Failed to save to Supabase: ${upsertError.message}, falling back to localStorage`);
-      } else {
-        addDebug('Trip data saved to Supabase successfully');
-      }
-    }
-
-    // Also save to localStorage as backup
+    // Save to localStorage FIRST (guaranteed to work, fast)
     addDebug(`Saving trip data to localStorage: ${JSON.stringify(tripData)}`);
     localStorage.setItem('pendingTripData', JSON.stringify(tripData));
+
+    // Save to Supabase pending_trips table (survives cross-domain redirects)
+    // Don't wait for this - proceed to payment step immediately
+    if (user?.id) {
+      addDebug(`Saving trip data to Supabase pending_trips for user ${user.id}`);
+
+      // Use timeout to prevent hanging
+      const saveToSupabase = async () => {
+        try {
+          const { error: upsertError } = await supabase
+            .from('pending_trips')
+            .upsert({
+              user_id: user.id,
+              name: tripData.name,
+              group_name: tripData.groupName,
+              description: tripData.description,
+              departure_time: tripData.departureTime,
+              return_time: tripData.returnTime,
+            }, { onConflict: 'user_id' });
+
+          if (upsertError) {
+            addDebug(`Failed to save to Supabase: ${upsertError.message}`);
+          } else {
+            addDebug('Trip data saved to Supabase successfully');
+          }
+        } catch (err) {
+          addDebug(`Supabase save error: ${err}`);
+        }
+      };
+
+      // Fire and forget - don't block the UI
+      saveToSupabase();
+    }
+
+    setLoading(false);
+    addDebug('Proceeding to payment step');
     setStep('payment');
   }
 
